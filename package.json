@@ -1,0 +1,41 @@
+{
+  "name": "generator-crud",
+  "version": "0.6.4",
+  "description": "Swagger/OpenAPI asosida CRUD module generator",
+  "type": "module",
+  "packageManager": "pnpm@10.0.0",
+  "bin": {
+    "generator-crud": "bin/generator-crud.mjs"
+  },
+  "exports": {
+    ".": "./generate-crud.mjs",
+    "./template": "./build-template.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "_templates",
+    "build-template.mjs",
+    "generate-crud.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "crud": "node ./generate-crud.mjs",
+    "template": "node ./build-template.mjs"
+  },
+  "keywords": [
+    "swagger",
+    "openapi",
+    "crud",
+    "generator",
+    "hygen"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "hygen": "^6.2.11"
+  }
+}

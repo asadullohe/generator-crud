@@ -1,0 +1,22 @@
+{
+  "sourcePath": "src/modules/fhdy/branch",
+  "defaultSortKey": "created_at",
+  "templateFiles": [
+    "api.ts",
+    "constants.ts",
+    "types.ts",
+    "mappers.ts",
+    "validation.ts",
+    "index.ts",
+    "forms/index.ts",
+    "forms/CreateForm.tsx",
+    "forms/UpdateForm.tsx",
+    "hooks/index.ts",
+    "hooks/useList.ts",
+    "hooks/useSingle.ts",
+    "hooks/useDelete.ts",
+    "hooks/useInfiniteList.ts"
+  ],
+  "templateName": "standard",
+  "generatedAt": "2026-05-07T16:42:57.010Z"
+}
