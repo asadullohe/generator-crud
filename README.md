@@ -5,14 +5,14 @@
 ## O'rnatish
 
 ```bash
-pnpm add -D generator-crud
+pnpm add -D @asadullohe/generator-crud
 ```
 
 CLI sifatida ishlatish:
 
 ```bash
-pnpm generator-crud template
-pnpm generator-crud crud
+pnpm exec generator-crud template
+pnpm exec generator-crud crud
 ```
 
 Yoki local package ichida:
@@ -30,8 +30,8 @@ Misol:
 
 ```bash
 cd /path/to/target-project
-pnpm generator-crud template
-pnpm generator-crud crud
+pnpm exec generator-crud template
+pnpm exec generator-crud crud
 ```
 
 ## Template oqimi
