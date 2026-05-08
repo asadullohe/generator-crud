@@ -37,6 +37,28 @@ pnpm exec generator-crud crud
 
 Generator har doim target loyiha root'idan ishga tushiriladi. Ya'ni `cwd` sifatida CRUD generatsiya qilinadigan repo turishi kerak.
 
+Swagger URL va auth ma'lumotlarini har safar kiritmaslik uchun target project root'ida `generate-crud.config.json` yaratish mumkin:
+
+```json
+{
+  "swaggerUrl": "swagger_url",
+  "serviceKey": "service",
+  "auth": {
+    "mode": "basic",
+    "usernameEnv": "SWAGGER_USERNAME",
+    "passwordEnv": "SWAGGER_PASSWORD"
+  }
+}
+```
+
+Keyin:
+
+```bash
+SWAGGER_USERNAME=login SWAGGER_PASSWORD=parol pnpm generate-crud
+```
+
+Login/parolni configga bevosita yozish ham mumkin, lekin repositoryga commit qilinadigan projectlarda env ishlatish tavsiya qilinadi.
+
 Misol:
 
 ```bash
@@ -69,10 +91,22 @@ Saqlanadigan joylar:
 
 - agar projectda template bo'lmasa, package ichidagi `standard` template'ni avtomatik aktiv qiladi
 - bir nechta saqlangan template bo'lsa, qaysi biri bilan ishlashni tanlatadi
-- Swagger/OpenAPI URL so'raydi
-- auth kerak bo'lsa auth ma'lumotlarini oladi
+- configda bo'lmasa Swagger/OpenAPI URL so'raydi
+- configda bo'lmasa auth ma'lumotlarini oladi
 - tag va operationlarni tanlatadi
 - `src/modules/...` ichiga CRUD modul generatsiya qiladi
+
+Qo'llab-quvvatlanadigan config fayllar:
+
+- `generate-crud.config.json`
+- `generate-crud.config.mjs`
+- `generate-crud.config.js`
+
+Custom config path berish:
+
+```bash
+pnpm generate-crud --config=./crud.config.json
+```
 
 ## Qo'llab-quvvatlanadigan holatlar
 

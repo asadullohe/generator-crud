@@ -4,6 +4,7 @@ import path from "node:path";
 import { AUTH_MODES } from "./lib/constants.mjs";
 import { buildApiMethodsBlock, buildCreateInitialValuesBlock, buildMapperFieldsBlock, buildMapperImportsBlock, buildSchemaContext, buildSuggestedOutputPath, buildUpdateInitialValuesBlock, buildValidationFieldsBlock } from "./lib/codegen.mjs";
 import { ensureDir, pathExists, projectPath, writeFile } from "./lib/fs-utils.mjs";
+import { loadGeneratorConfig, resolveAuthConfig } from "./lib/generator-config.mjs";
 import { buildModuleNames, toCamelCase, toPascalCase } from "./lib/naming.mjs";
 import { detectExtraMutations, detectServiceKey, describeOperation, getOperationsByTag, getServers, getTags, loadConfigServices, loadOpenApiDocument, resolveCrudCandidates } from "./lib/openapi.mjs";
 import { closePrompt, promptConfirm, promptSelect, promptText } from "./lib/prompt.mjs";
@@ -311,6 +312,31 @@ function inferServiceKeyFromServer(serverUrl) {
   }
 }
 
+async function chooseServer(doc, swaggerUrl, config) {
+  const servers = getServers(doc, swaggerUrl);
+
+  if (config.serverUrl) {
+    return {
+      label: config.serverUrl,
+      value: config.serverUrl,
+    };
+  }
+
+  if (servers.length === 1) {
+    return servers[0];
+  }
+
+  const selected = await promptSelect(
+    "Service uchun server tanlang",
+    servers.map((serverItem) => ({
+      label: serverItem.label,
+      value: serverItem.value,
+    })),
+  );
+
+  return selected;
+}
+
 async function writeExtraMutations({ names, extraActions, apiName }) {
   const mutationActions = extraActions.filter((action) => action.generationType === "mutation");
   if (!mutationActions.length) {
@@ -591,21 +617,16 @@ async function resolveEntityRelationBindings(fields) {
 }
 
 async function main() {
+  const config = await loadGeneratorConfig();
   const manifest = await ensureTemplateReady();
-  const swaggerUrl = await promptText("Swagger/OpenAPI URL yoki local file path");
-  const auth = await promptAuthConfig();
+  const swaggerUrl = config.swaggerUrl || await promptText("Swagger/OpenAPI URL yoki local file path");
+  const auth = resolveAuthConfig(config.auth) || await promptAuthConfig();
   const doc = await loadOpenApiDocument(swaggerUrl, auth);
   const services = await loadConfigServices(projectPath("src/config.ts"));
 
-  const server = await promptSelect(
-    "Service uchun server tanlang",
-    getServers(doc, swaggerUrl).map((serverItem) => ({
-      label: serverItem.label,
-      value: serverItem.value,
-    })),
-  );
+  const server = await chooseServer(doc, swaggerUrl, config);
 
-  let serviceKey = detectServiceKey(server.value, services);
+  let serviceKey = config.serviceKey || detectServiceKey(server.value, services);
 
   if (!serviceKey) {
     const serviceKeys = Object.keys(services);
