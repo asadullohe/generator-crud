@@ -62,6 +62,13 @@ Keyin:
 SWAGGER_USERNAME=login SWAGGER_PASSWORD=parol pnpm generate-crud
 ```
 
+Yoki target project root'ida `.env` fayl yaratish mumkin:
+
+```bash
+SWAGGER_USERNAME=login
+SWAGGER_PASSWORD=parol
+```
+
 Login/parolni configga bevosita yozish ham mumkin, lekin repositoryga commit qilinadigan projectlarda env ishlatish tavsiya qilinadi.
 
 `serviceKey` yozish shart emas. Generator Swagger/OpenAPI `servers` ro'yxatini chiqaradi, tanlangan server `/service-name` bo'lsa `serviceKey` avtomatik `serviceName` bo'ladi. Agar majburan berish kerak bo'lsa:
