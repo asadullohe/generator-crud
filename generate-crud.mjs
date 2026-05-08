@@ -321,13 +321,16 @@ async function chooseServer(doc, swaggerUrl, config, options = {}) {
 
   if (config.serverUrl) {
     return {
-      label: config.serverUrl,
-      value: config.serverUrl,
+      server: {
+        label: config.serverUrl,
+        value: config.serverUrl,
+      },
+      prompted: false,
     };
   }
 
-  if (servers.length === 1) {
-    return servers[0];
+  if (servers.length === 1 && !options.allowBack) {
+    return { server: servers[0], prompted: false };
   }
 
   const selected = await promptSelect(
@@ -340,22 +343,25 @@ async function chooseServer(doc, swaggerUrl, config, options = {}) {
     options,
   );
 
-  return selected;
+  return { server: selected, prompted: true };
 }
 
 async function chooseDefinition(swaggerUrl, auth, config, options = {}) {
   if (config.definitionUrl) {
     return {
-      name: config.definitionName || config.definitionUrl,
-      label: config.definitionName || config.definitionUrl,
-      url: config.definitionUrl,
+      definition: {
+        name: config.definitionName || config.definitionUrl,
+        label: config.definitionName || config.definitionUrl,
+        url: config.definitionUrl,
+      },
+      prompted: false,
     };
   }
 
   const definitions = await getSwaggerDefinitions(swaggerUrl, auth);
 
   if (!definitions.length) {
-    return null;
+    return { definition: null, prompted: false };
   }
 
   if (config.definitionName) {
@@ -364,7 +370,7 @@ async function chooseDefinition(swaggerUrl, auth, config, options = {}) {
       throw new Error(`Swagger definition topilmadi: ${config.definitionName}`);
     }
 
-    return matched;
+    return { definition: matched, prompted: false };
   }
 
   const pageUrl = new URL(swaggerUrl, "http://localhost");
@@ -372,12 +378,12 @@ async function chooseDefinition(swaggerUrl, auth, config, options = {}) {
   if (primaryName) {
     const matched = definitions.find((definition) => definition.name === primaryName);
     if (matched) {
-      return matched;
+      return { definition: matched, prompted: false };
     }
   }
 
-  if (definitions.length === 1) {
-    return definitions[0];
+  if (definitions.length === 1 && !options.allowBack) {
+    return { definition: definitions[0], prompted: false };
   }
 
   const selected = await promptSelect(
@@ -390,7 +396,7 @@ async function chooseDefinition(swaggerUrl, auth, config, options = {}) {
     options,
   );
 
-  return selected.value;
+  return { definition: selected.value, prompted: true };
 }
 
 async function writeExtraMutations({ names, extraActions, apiName }) {
@@ -702,12 +708,12 @@ function hasGeneratableOperations(finalOperations, extraActions) {
 
 function previousInteractiveStep(steps, currentIndex) {
   for (let index = currentIndex - 1; index >= 0; index -= 1) {
-    if (steps[index].interactive) {
+    if (steps[index].wasInteractive ?? steps[index].interactive) {
       return index;
     }
   }
 
-  return 0;
+  return null;
 }
 
 async function runCrudWizard({ config, manifest }) {
@@ -730,9 +736,11 @@ async function runCrudWizard({ config, manifest }) {
     },
     {
       key: "definition",
-      interactive: true,
+      interactive: false,
       run: async () => {
-        state.definition = await chooseDefinition(state.swaggerUrl, state.auth, config, promptOptions);
+        const result = await chooseDefinition(state.swaggerUrl, state.auth, config, promptOptions);
+        state.definition = result.definition;
+        steps.find((step) => step.key === "definition").wasInteractive = result.prompted;
       },
     },
     {
@@ -745,9 +753,11 @@ async function runCrudWizard({ config, manifest }) {
     },
     {
       key: "server",
-      interactive: !config.serverUrl,
+      interactive: false,
       run: async () => {
-        state.server = await chooseServer(state.doc, state.swaggerUrl, config, promptOptions);
+        const result = await chooseServer(state.doc, state.swaggerUrl, config, promptOptions);
+        state.server = result.server;
+        steps.find((step) => step.key === "server").wasInteractive = result.prompted;
         state.serviceKey =
           config.serviceKey ||
           detectServiceKey(state.server.value, state.services) ||
@@ -841,7 +851,13 @@ async function runCrudWizard({ config, manifest }) {
         throw error;
       }
 
-      index = previousInteractiveStep(steps, index);
+      const previousIndex = previousInteractiveStep(steps, index);
+      if (previousIndex == null) {
+        console.log("Oldingi step yo'q.");
+        continue;
+      }
+
+      index = previousIndex;
     }
   }
 
