@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+import path from "node:path";
 import { AUTH_MODES } from "./lib/constants.mjs";
 import { buildApiMethodsBlock, buildCreateInitialValuesBlock, buildMapperFieldsBlock, buildMapperImportsBlock, buildSchemaContext, buildSuggestedOutputPath, buildUpdateInitialValuesBlock, buildValidationFieldsBlock } from "./lib/codegen.mjs";
-import { ensureDir, writeFile } from "./lib/fs-utils.mjs";
+import { ensureDir, pathExists, projectPath, writeFile } from "./lib/fs-utils.mjs";
 import { buildModuleNames, toCamelCase, toPascalCase } from "./lib/naming.mjs";
 import { detectExtraMutations, detectServiceKey, describeOperation, getOperationsByTag, getServers, getTags, loadConfigServices, loadOpenApiDocument, resolveCrudCandidates } from "./lib/openapi.mjs";
 import { closePrompt, promptConfirm, promptSelect, promptText } from "./lib/prompt.mjs";
@@ -13,6 +15,8 @@ import {
 } from "./lib/relations.mjs";
 import { extractRequestSchema, getSchemaFields } from "./lib/schema.mjs";
 import { activateTemplate, getCurrentTemplateName, listSavedTemplates, seedBundledDefaultTemplate } from "./lib/template-builder.mjs";
+
+const require = createRequire(import.meta.url);
 
 async function ensureTemplateReady() {
   let savedTemplates = await listSavedTemplates();
@@ -279,19 +283,31 @@ async function classifyRemainingOperations({ operations, resolvedOperations, aut
 }
 
 function runHygen(locals) {
-  const args = ["hygen", "crud-module", "new"];
+  const hygenPackagePath = require.resolve("hygen/package.json");
+  const hygenBin = path.join(path.dirname(hygenPackagePath), "dist/bin.js");
+  const args = [hygenBin, "crud-module", "new"];
 
   for (const [key, value] of Object.entries(locals)) {
     args.push(`--${key}`, String(value));
   }
 
-  const result = spawnSync("pnpm", args, {
+  const result = spawnSync(process.execPath, args, {
     cwd: process.cwd(),
     stdio: "inherit",
   });
 
   if (result.status !== 0) {
     throw new Error("Hygen generator muvaffaqiyatsiz tugadi");
+  }
+}
+
+function inferServiceKeyFromServer(serverUrl) {
+  try {
+    const url = new URL(serverUrl, "http://localhost");
+    const firstSegment = url.pathname.split("/").filter(Boolean)[0];
+    return firstSegment ? toCamelCase(firstSegment) : "api";
+  } catch {
+    return "api";
   }
 }
 
@@ -592,15 +608,21 @@ async function main() {
   let serviceKey = detectServiceKey(server.value, services);
 
   if (!serviceKey) {
-    serviceKey = (
-      await promptSelect(
-        "config.services ichidan service key tanlang",
-        Object.keys(services).map((key) => ({
-          label: `${key} (${services[key]})`,
-          value: key,
-        })),
-      )
-    ).value;
+    const serviceKeys = Object.keys(services);
+
+    if (serviceKeys.length) {
+      serviceKey = (
+        await promptSelect(
+          "config.services ichidan service key tanlang",
+          serviceKeys.map((key) => ({
+            label: `${key} (${services[key]})`,
+            value: key,
+          })),
+        )
+      ).value;
+    } else {
+      serviceKey = await promptText("config.services uchun service key", inferServiceKeyFromServer(server.value));
+    }
   }
 
   const tag = await promptSelect(
