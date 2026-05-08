@@ -6,7 +6,7 @@ import { buildApiMethodsBlock, buildCreateInitialValuesBlock, buildMapperFieldsB
 import { ensureDir, pathExists, projectPath, writeFile } from "./lib/fs-utils.mjs";
 import { ensureGeneratorConfigFile, loadGeneratorConfig, resolveAuthConfig } from "./lib/generator-config.mjs";
 import { buildModuleNames, toCamelCase, toPascalCase } from "./lib/naming.mjs";
-import { detectExtraMutations, detectServiceKey, describeOperation, getOperationsByTag, getServers, getTags, loadConfigServices, loadOpenApiDocument, resolveCrudCandidates } from "./lib/openapi.mjs";
+import { detectExtraMutations, detectServiceKey, describeOperation, getOperationsByTag, getServers, getSwaggerDefinitions, getTags, loadConfigServices, loadOpenApiDocument, resolveCrudCandidates } from "./lib/openapi.mjs";
 import { closePrompt, promptConfirm, promptSelect, promptText } from "./lib/prompt.mjs";
 import {
   getRelationKind,
@@ -337,6 +337,54 @@ async function chooseServer(doc, swaggerUrl, config) {
   return selected;
 }
 
+async function chooseDefinition(swaggerUrl, auth, config) {
+  if (config.definitionUrl) {
+    return {
+      name: config.definitionName || config.definitionUrl,
+      label: config.definitionName || config.definitionUrl,
+      url: config.definitionUrl,
+    };
+  }
+
+  const definitions = await getSwaggerDefinitions(swaggerUrl, auth);
+
+  if (!definitions.length) {
+    return null;
+  }
+
+  if (config.definitionName) {
+    const matched = definitions.find((definition) => definition.name === config.definitionName);
+    if (!matched) {
+      throw new Error(`Swagger definition topilmadi: ${config.definitionName}`);
+    }
+
+    return matched;
+  }
+
+  const pageUrl = new URL(swaggerUrl, "http://localhost");
+  const primaryName = pageUrl.searchParams.get("urls.primaryName");
+  if (primaryName) {
+    const matched = definitions.find((definition) => definition.name === primaryName);
+    if (matched) {
+      return matched;
+    }
+  }
+
+  if (definitions.length === 1) {
+    return definitions[0];
+  }
+
+  const selected = await promptSelect(
+    "Swagger definition tanlang",
+    definitions.map((definition) => ({
+      label: definition.label,
+      value: definition,
+    })),
+  );
+
+  return selected.value;
+}
+
 async function writeExtraMutations({ names, extraActions, apiName }) {
   const mutationActions = extraActions.filter((action) => action.generationType === "mutation");
   if (!mutationActions.length) {
@@ -622,7 +670,8 @@ async function main() {
   const manifest = await ensureTemplateReady();
   const swaggerUrl = config.swaggerUrl || await promptText("Swagger/OpenAPI URL yoki local file path");
   const auth = resolveAuthConfig(config.auth) || await promptAuthConfig();
-  const doc = await loadOpenApiDocument(swaggerUrl, auth);
+  const definition = await chooseDefinition(swaggerUrl, auth, config);
+  const doc = await loadOpenApiDocument(definition?.url || swaggerUrl, auth);
   const services = await loadConfigServices(projectPath("src/config.ts"));
 
   const server = await chooseServer(doc, swaggerUrl, config);

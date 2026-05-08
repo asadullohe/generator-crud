@@ -50,6 +50,7 @@ Swagger URL va auth ma'lumotlarini har safar kiritmaslik uchun target project ro
 ```json
 {
   "swaggerUrl": "",
+  "definitionName": "",
   "auth": {
     "mode": "none"
   }
@@ -70,6 +71,22 @@ SWAGGER_PASSWORD=parol
 ```
 
 Login/parolni configga bevosita yozish ham mumkin, lekin repositoryga commit qilinadigan projectlarda env ishlatish tavsiya qilinadi.
+
+Swagger UI ichida bir nechta definition bo'lsa, generator ularni ro'yxat qilib tanlatadi. Aniq definitionni config orqali berish ham mumkin:
+
+```json
+{
+  "definitionName": "Service V1"
+}
+```
+
+Yoki to'g'ridan-to'g'ri spec URL:
+
+```json
+{
+  "definitionUrl": "https://example.com/service/v3/api-docs/Service%20V1"
+}
+```
 
 `serviceKey` yozish shart emas. Generator Swagger/OpenAPI `servers` ro'yxatini chiqaradi, tanlangan server `/service-name` bo'lsa `serviceKey` avtomatik `serviceName` bo'ladi. Agar majburan berish kerak bo'lsa:
 
@@ -165,6 +182,7 @@ Saqlanadigan joylar:
 - bir nechta saqlangan template bo'lsa, qaysi biri bilan ishlashni tanlatadi
 - configda bo'lmasa Swagger/OpenAPI URL so'raydi
 - configda bo'lmasa auth ma'lumotlarini oladi
+- Swagger UI ichida bir nechta definition bo'lsa, definition tanlatadi
 - tag va operationlarni tanlatadi
 - `src/modules/...` ichiga CRUD modul generatsiya qiladi
 
