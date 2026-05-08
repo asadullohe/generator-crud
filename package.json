@@ -1,6 +1,6 @@
 {
   "name": "@asadullohe/generator-crud",
-  "version": "1.0.5",
+  "version": "1.0.7",
   "description": "Swagger/OpenAPI asosida CRUD module generator",
   "type": "module",
   "packageManager": "pnpm@10.0.0",
@@ -25,6 +25,7 @@
   ],
   "scripts": {
     "crud": "node ./generate-crud.mjs",
+    "postinstall": "node ./bin/create-default-config.mjs",
     "template": "node ./build-template.mjs"
   },
   "keywords": [

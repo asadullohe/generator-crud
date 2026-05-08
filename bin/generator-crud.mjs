@@ -8,8 +8,14 @@ if (!command || command === "help" || command === "--help" || command === "-h") 
 Foydalanish:
   generator-crud crud
   generator-crud template
+  generator-crud init
 `);
   process.exit(0);
+}
+
+if (command === "init") {
+  await import("./create-default-config.mjs");
+  process.exit(process.exitCode || 0);
 }
 
 if (command === "crud") {

@@ -629,21 +629,7 @@ async function main() {
   let serviceKey = config.serviceKey || detectServiceKey(server.value, services);
 
   if (!serviceKey) {
-    const serviceKeys = Object.keys(services);
-
-    if (serviceKeys.length) {
-      serviceKey = (
-        await promptSelect(
-          "config.services ichidan service key tanlang",
-          serviceKeys.map((key) => ({
-            label: `${key} (${services[key]})`,
-            value: key,
-          })),
-        )
-      ).value;
-    } else {
-      serviceKey = await promptText("config.services uchun service key", inferServiceKeyFromServer(server.value));
-    }
+    serviceKey = inferServiceKeyFromServer(server.value);
   }
 
   const tag = await promptSelect(

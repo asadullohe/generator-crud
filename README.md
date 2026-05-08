@@ -8,6 +8,8 @@
 pnpm add -D @asadullohe/generator-crud
 ```
 
+Install qilinganda target project root'ida `generate-crud.config.json` default qiymatlar bilan yaratiladi. Agar fayl oldindan mavjud bo'lsa, ustidan yozilmaydi.
+
 Target project `package.json`iga script qo'shish:
 
 ```json
@@ -33,6 +35,12 @@ Script qo'shmasdan to'g'ridan-to'g'ri ishlatish ham mumkin:
 pnpm exec generator-crud crud
 ```
 
+Config faylni qo'lda yaratish kerak bo'lsa:
+
+```bash
+pnpm exec generator-crud init
+```
+
 ## Ishlatish
 
 Generator har doim target loyiha root'idan ishga tushiriladi. Ya'ni `cwd` sifatida CRUD generatsiya qilinadigan repo turishi kerak.
@@ -41,8 +49,7 @@ Swagger URL va auth ma'lumotlarini har safar kiritmaslik uchun target project ro
 
 ```json
 {
-  "swaggerUrl": "swagger_url",
-  "serviceKey": "service",
+  "swaggerUrl": "https://example.com/service/swagger-ui/index.html",
   "auth": {
     "mode": "basic",
     "usernameEnv": "SWAGGER_USERNAME",
@@ -58,6 +65,66 @@ SWAGGER_USERNAME=login SWAGGER_PASSWORD=parol pnpm generate-crud
 ```
 
 Login/parolni configga bevosita yozish ham mumkin, lekin repositoryga commit qilinadigan projectlarda env ishlatish tavsiya qilinadi.
+
+`serviceKey` yozish shart emas. Generator Swagger/OpenAPI `servers` ro'yxatini chiqaradi, tanlangan server `/service-name` bo'lsa `serviceKey` avtomatik `serviceName` bo'ladi. Agar majburan berish kerak bo'lsa:
+
+```json
+{
+  "serviceKey": "serviceName"
+}
+```
+
+Auth `mode` variantlari:
+
+Auth yo'q:
+
+```json
+{
+  "auth": {
+    "mode": "none"
+  }
+}
+```
+
+Basic auth:
+
+```json
+{
+  "auth": {
+    "mode": "basic",
+    "usernameEnv": "SWAGGER_USERNAME",
+    "passwordEnv": "SWAGGER_PASSWORD"
+  }
+}
+```
+
+Bearer token:
+
+```json
+{
+  "auth": {
+    "mode": "bearer",
+    "tokenEnv": "SWAGGER_TOKEN"
+  }
+}
+```
+
+Login endpoint orqali token olish:
+
+```json
+{
+  "auth": {
+    "mode": "login",
+    "authUrl": "https://example.com/auth/login",
+    "authMethod": "POST",
+    "usernameEnv": "SWAGGER_USERNAME",
+    "passwordEnv": "SWAGGER_PASSWORD",
+    "loginField": "username",
+    "passwordField": "password",
+    "tokenPath": "accessToken"
+  }
+}
+```
 
 Misol:
 
