@@ -7,7 +7,7 @@ import { ensureDir, pathExists, projectPath, writeFile } from "./lib/fs-utils.mj
 import { ensureGeneratorConfigFile, loadGeneratorConfig, resolveAuthConfig } from "./lib/generator-config.mjs";
 import { buildModuleNames, toCamelCase, toPascalCase } from "./lib/naming.mjs";
 import { detectExtraMutations, detectServiceKey, describeOperation, getOperationsByTag, getServers, getSwaggerDefinitions, getTags, loadConfigServices, loadOpenApiDocument, resolveCrudCandidates } from "./lib/openapi.mjs";
-import { closePrompt, promptConfirm, promptSelect, promptText } from "./lib/prompt.mjs";
+import { PromptBackError, closePrompt, promptConfirm, promptSelect, promptText } from "./lib/prompt.mjs";
 import {
   getRelationKind,
   inferRelationCandidates,
@@ -56,8 +56,8 @@ async function ensureTemplateReady() {
   return activateTemplate(selected.value);
 }
 
-async function promptAuthConfig() {
-  const requiresAuth = await promptConfirm("Swagger uchun auth kerakmi?", false);
+async function promptAuthConfig(options = {}) {
+  const requiresAuth = await promptConfirm("Swagger uchun auth kerakmi?", false, options);
 
   if (!requiresAuth) {
     return { mode: AUTH_MODES.NONE };
@@ -67,36 +67,36 @@ async function promptAuthConfig() {
     { label: "Basic auth", value: AUTH_MODES.BASIC },
     { label: "Bearer token", value: AUTH_MODES.BEARER },
     { label: "Login/password orqali token", value: AUTH_MODES.LOGIN },
-  ]);
+  ], 0, options);
 
   if (mode.value === AUTH_MODES.BASIC) {
     return {
       mode: AUTH_MODES.BASIC,
-      username: await promptText("Login"),
-      password: await promptText("Parol"),
+      username: await promptText("Login", "", options),
+      password: await promptText("Parol", "", options),
     };
   }
 
   if (mode.value === AUTH_MODES.BEARER) {
     return {
       mode: AUTH_MODES.BEARER,
-      token: await promptText("Bearer token"),
+      token: await promptText("Bearer token", "", options),
     };
   }
 
   return {
     mode: AUTH_MODES.LOGIN,
-    username: await promptText("Login"),
-    password: await promptText("Parol"),
-    authUrl: await promptText("Auth endpoint URL"),
-    authMethod: await promptText("Auth method", "POST"),
-    loginField: await promptText("Login field key", "username"),
-    passwordField: await promptText("Password field key", "password"),
-    tokenPath: await promptText("Token response path", "accessToken"),
+    username: await promptText("Login", "", options),
+    password: await promptText("Parol", "", options),
+    authUrl: await promptText("Auth endpoint URL", "", options),
+    authMethod: await promptText("Auth method", "POST", options),
+    loginField: await promptText("Login field key", "username", options),
+    passwordField: await promptText("Password field key", "password", options),
+    tokenPath: await promptText("Token response path", "accessToken", options),
   };
 }
 
-async function chooseOperation(kind, operations) {
+async function chooseOperation(kind, operations, options = {}) {
   if (!operations.length) {
     return null;
   }
@@ -111,6 +111,8 @@ async function chooseOperation(kind, operations) {
       label: describeOperation(operation),
       value: operation,
     })),
+    0,
+    options,
   );
 
   return selected.value;
@@ -215,7 +217,7 @@ function buildClassificationOptions(operation, resolvedOperations) {
   return options;
 }
 
-async function classifyRemainingOperations({ operations, resolvedOperations, autoExtraActions, doc }) {
+async function classifyRemainingOperations({ operations, resolvedOperations, autoExtraActions, doc }, promptOptions = {}) {
   const selected = new Set(Object.values(resolvedOperations).filter(Boolean));
   const autoSet = new Set(autoExtraActions.map((action) => action.operation));
   const usedNames = new Set(autoExtraActions.map((action) => action.apiMethodName));
@@ -226,10 +228,12 @@ async function classifyRemainingOperations({ operations, resolvedOperations, aut
       continue;
     }
 
-    const options = buildClassificationOptions(operation, resolvedOperations);
+    const classificationOptions = buildClassificationOptions(operation, resolvedOperations);
     const selectedOption = await promptSelect(
       `Operation nima bo'lishini tanlang: ${describeOperation(operation)}`,
-      options,
+      classificationOptions,
+      0,
+      promptOptions,
     );
 
     switch (selectedOption.value) {
@@ -312,7 +316,7 @@ function inferServiceKeyFromServer(serverUrl) {
   }
 }
 
-async function chooseServer(doc, swaggerUrl, config) {
+async function chooseServer(doc, swaggerUrl, config, options = {}) {
   const servers = getServers(doc, swaggerUrl);
 
   if (config.serverUrl) {
@@ -332,12 +336,14 @@ async function chooseServer(doc, swaggerUrl, config) {
       label: serverItem.label,
       value: serverItem.value,
     })),
+    0,
+    options,
   );
 
   return selected;
 }
 
-async function chooseDefinition(swaggerUrl, auth, config) {
+async function chooseDefinition(swaggerUrl, auth, config, options = {}) {
   if (config.definitionUrl) {
     return {
       name: config.definitionName || config.definitionUrl,
@@ -380,6 +386,8 @@ async function chooseDefinition(swaggerUrl, auth, config) {
       label: definition.label,
       value: definition,
     })),
+    0,
+    options,
   );
 
   return selected.value;
@@ -560,13 +568,14 @@ ${buildCreateInitialValuesBlock(action.requestFields)}
   await writeFile(projectPath("src/modules", names.outputPath, "forms", "index.ts"), exportLines.join("\n"));
 }
 
-async function promptAvailableOutputPath(defaultPath) {
+async function promptAvailableOutputPath(defaultPath, options = {}) {
   let suggestedPath = defaultPath;
 
   while (true) {
     const outputPath = await promptText(
       "Module output path (`src/modules/` dan keyingi qism)",
       suggestedPath,
+      options,
     );
     const names = buildModuleNames(outputPath);
     const absoluteOutput = projectPath("src/modules", names.outputPath);
@@ -579,11 +588,12 @@ async function promptAvailableOutputPath(defaultPath) {
     suggestedPath = await promptText(
       "Yangi output path kiriting",
       `${names.outputPath}Copy`,
+      options,
     );
   }
 }
 
-async function resolveEntityRelationBindings(fields) {
+async function resolveEntityRelationBindings(fields, options = {}) {
   const bindings = {};
 
   for (const field of fields) {
@@ -635,14 +645,16 @@ async function resolveEntityRelationBindings(fields) {
         })),
       ],
       suggestions.length ? 1 : 0,
+      options,
     );
 
     if (selected.value === "manual") {
       const modulePath = await promptText(
         `"${field.name}" uchun mapper import path`,
         "@/modules/",
+        options,
       );
-      const mapperName = await promptText(`"${field.name}" uchun mapper nomi`);
+      const mapperName = await promptText(`"${field.name}" uchun mapper nomi`, "", options);
 
       bindings[field.name] = {
         key: field.name,
@@ -664,46 +676,8 @@ async function resolveEntityRelationBindings(fields) {
   return bindings;
 }
 
-async function main() {
-  await ensureGeneratorConfigFile();
-  const config = await loadGeneratorConfig();
-  const manifest = await ensureTemplateReady();
-  const swaggerUrl = config.swaggerUrl || await promptText("Swagger/OpenAPI URL yoki local file path");
-  const auth = resolveAuthConfig(config.auth) || await promptAuthConfig();
-  const definition = await chooseDefinition(swaggerUrl, auth, config);
-  const doc = await loadOpenApiDocument(definition?.url || swaggerUrl, auth);
-  const services = await loadConfigServices(projectPath("src/config.ts"));
-
-  const server = await chooseServer(doc, swaggerUrl, config);
-
-  let serviceKey = config.serviceKey || detectServiceKey(server.value, services);
-
-  if (!serviceKey) {
-    serviceKey = inferServiceKeyFromServer(server.value);
-  }
-
-  const tag = await promptSelect(
-    "Tag tanlang",
-    getTags(doc).map((tagItem) => ({
-      label: tagItem.label,
-      value: tagItem.value,
-    })),
-  );
-
-  const operations = getOperationsByTag(doc, tag.value);
-  if (!operations.length) {
-    throw new Error(`"${tag.value}" tagi uchun operation topilmadi`);
-  }
-
-  const candidates = resolveCrudCandidates(operations);
-  const resolvedOperations = {
-    list: await chooseOperation("list", candidates.list),
-    single: await chooseOperation("single", candidates.single),
-    create: await chooseOperation("create", candidates.create),
-    update: await chooseOperation("update", candidates.update),
-    delete: await chooseOperation("delete", candidates.delete),
-  };
-  const autoExtraActions = detectExtraMutations(operations, resolvedOperations, doc).map((action) => ({
+function buildAutoExtraActions(operations, resolvedOperations, doc) {
+  return detectExtraMutations(operations, resolvedOperations, doc).map((action) => ({
     ...action,
     generationType: "mutation",
     hasPathParam: operationHasPathParam(action.operation),
@@ -713,29 +687,180 @@ async function main() {
     validationName: `${toPascalCase(action.apiMethodName)}Validation`,
     valuesTypeName: `${toPascalCase(action.apiMethodName)}Values`,
   }));
-  const classified = await classifyRemainingOperations({
-    operations,
-    resolvedOperations,
-    autoExtraActions,
-    doc,
-  });
-  const finalOperations = classified.resolvedOperations;
-  const extraActions = classified.extraActions;
+}
 
-  if (
-    !finalOperations.list &&
-    !finalOperations.single &&
-    !finalOperations.create &&
-    !finalOperations.update &&
-    !finalOperations.delete &&
-    !extraActions.length
-  ) {
-    throw new Error("Tanlangan tag uchun generatsiya qilsa bo'ladigan operation topilmadi");
+function hasGeneratableOperations(finalOperations, extraActions) {
+  return (
+    finalOperations.list ||
+    finalOperations.single ||
+    finalOperations.create ||
+    finalOperations.update ||
+    finalOperations.delete ||
+    extraActions.length
+  );
+}
+
+function previousInteractiveStep(steps, currentIndex) {
+  for (let index = currentIndex - 1; index >= 0; index -= 1) {
+    if (steps[index].interactive) {
+      return index;
+    }
   }
 
-  const names = await promptAvailableOutputPath(buildSuggestedOutputPath(tag.value, finalOperations));
-  const schemaContext = buildSchemaContext(doc, finalOperations);
-  const relationBindings = await resolveEntityRelationBindings(schemaContext.entityFields);
+  return 0;
+}
+
+async function runCrudWizard({ config, manifest }) {
+  const state = { config, manifest };
+  const promptOptions = { allowBack: true };
+  const steps = [
+    {
+      key: "swagger",
+      interactive: !config.swaggerUrl,
+      run: async () => {
+        state.swaggerUrl = config.swaggerUrl || await promptText("Swagger/OpenAPI URL yoki local file path", "", promptOptions);
+      },
+    },
+    {
+      key: "auth",
+      interactive: !config.auth,
+      run: async () => {
+        state.auth = resolveAuthConfig(config.auth) || await promptAuthConfig(promptOptions);
+      },
+    },
+    {
+      key: "definition",
+      interactive: true,
+      run: async () => {
+        state.definition = await chooseDefinition(state.swaggerUrl, state.auth, config, promptOptions);
+      },
+    },
+    {
+      key: "document",
+      interactive: false,
+      run: async () => {
+        state.doc = await loadOpenApiDocument(state.definition?.url || state.swaggerUrl, state.auth);
+        state.services = await loadConfigServices(projectPath("src/config.ts"));
+      },
+    },
+    {
+      key: "server",
+      interactive: !config.serverUrl,
+      run: async () => {
+        state.server = await chooseServer(state.doc, state.swaggerUrl, config, promptOptions);
+        state.serviceKey =
+          config.serviceKey ||
+          detectServiceKey(state.server.value, state.services) ||
+          inferServiceKeyFromServer(state.server.value);
+      },
+    },
+    {
+      key: "tag",
+      interactive: true,
+      run: async () => {
+        state.tag = await promptSelect(
+          "Tag tanlang",
+          getTags(state.doc).map((tagItem) => ({
+            label: tagItem.label,
+            value: tagItem.value,
+          })),
+          0,
+          promptOptions,
+        );
+        state.operations = getOperationsByTag(state.doc, state.tag.value);
+        if (!state.operations.length) {
+          throw new Error(`"${state.tag.value}" tagi uchun operation topilmadi`);
+        }
+      },
+    },
+    {
+      key: "operations",
+      interactive: true,
+      run: async () => {
+        const candidates = resolveCrudCandidates(state.operations);
+        state.resolvedOperations = {
+          list: await chooseOperation("list", candidates.list, promptOptions),
+          single: await chooseOperation("single", candidates.single, promptOptions),
+          create: await chooseOperation("create", candidates.create, promptOptions),
+          update: await chooseOperation("update", candidates.update, promptOptions),
+          delete: await chooseOperation("delete", candidates.delete, promptOptions),
+        };
+        state.autoExtraActions = buildAutoExtraActions(state.operations, state.resolvedOperations, state.doc);
+      },
+    },
+    {
+      key: "extraOperations",
+      interactive: true,
+      run: async () => {
+        const classified = await classifyRemainingOperations(
+          {
+            operations: state.operations,
+            resolvedOperations: { ...state.resolvedOperations },
+            autoExtraActions: state.autoExtraActions,
+            doc: state.doc,
+          },
+          promptOptions,
+        );
+        state.finalOperations = classified.resolvedOperations;
+        state.extraActions = classified.extraActions;
+
+        if (!hasGeneratableOperations(state.finalOperations, state.extraActions)) {
+          throw new Error("Tanlangan tag uchun generatsiya qilsa bo'ladigan operation topilmadi");
+        }
+      },
+    },
+    {
+      key: "outputPath",
+      interactive: true,
+      run: async () => {
+        state.names = await promptAvailableOutputPath(
+          buildSuggestedOutputPath(state.tag.value, state.finalOperations),
+          promptOptions,
+        );
+      },
+    },
+    {
+      key: "relations",
+      interactive: true,
+      run: async () => {
+        state.schemaContext = buildSchemaContext(state.doc, state.finalOperations);
+        state.relationBindings = await resolveEntityRelationBindings(
+          state.schemaContext.entityFields,
+          promptOptions,
+        );
+      },
+    },
+  ];
+
+  for (let index = 0; index < steps.length;) {
+    try {
+      await steps[index].run();
+      index += 1;
+    } catch (error) {
+      if (!(error instanceof PromptBackError)) {
+        throw error;
+      }
+
+      index = previousInteractiveStep(steps, index);
+    }
+  }
+
+  return state;
+}
+
+async function main() {
+  await ensureGeneratorConfigFile();
+  const config = await loadGeneratorConfig();
+  const manifest = await ensureTemplateReady();
+  const {
+    doc,
+    serviceKey,
+    finalOperations,
+    extraActions,
+    names,
+    schemaContext,
+    relationBindings,
+  } = await runCrudWizard({ config, manifest });
   const hasCreateForm = Boolean(finalOperations.create && schemaContext.formFields.length);
   const hasUpdateForm = Boolean(finalOperations.update && schemaContext.formFields.length);
   const hasList = Boolean(finalOperations.list);

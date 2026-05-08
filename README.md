@@ -183,6 +183,7 @@ Saqlanadigan joylar:
 - configda bo'lmasa Swagger/OpenAPI URL so'raydi
 - configda bo'lmasa auth ma'lumotlarini oladi
 - Swagger UI ichida bir nechta definition bo'lsa, definition tanlatadi
+- select savollarida `0`, text savollarida `:back` orqali oldingi stepga qaytish mumkin
 - tag va operationlarni tanlatadi
 - `src/modules/...` ichiga CRUD modul generatsiya qiladi
 
