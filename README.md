@@ -8,7 +8,7 @@
 pnpm add -D @asadullohe/generator-crud
 ```
 
-Install qilinganda target project root'ida `generate-crud.config.json` default qiymatlar bilan yaratiladi. Agar fayl oldindan mavjud bo'lsa, ustidan yozilmaydi.
+Install qilinganda target project root'ida `generate-crud.config.json` default qiymatlar bilan yaratiladi. Agar package manager install scriptlarini o'tkazib yuborsa, `pnpm generate-crud` birinchi ishga tushganda ham config faylni yaratadi. Mavjud fayl ustidan yozilmaydi.
 
 Target project `package.json`iga script qo'shish:
 
@@ -49,11 +49,9 @@ Swagger URL va auth ma'lumotlarini har safar kiritmaslik uchun target project ro
 
 ```json
 {
-  "swaggerUrl": "https://example.com/service/swagger-ui/index.html",
+  "swaggerUrl": "",
   "auth": {
-    "mode": "basic",
-    "usernameEnv": "SWAGGER_USERNAME",
-    "passwordEnv": "SWAGGER_PASSWORD"
+    "mode": "none"
   }
 }
 ```

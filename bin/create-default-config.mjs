@@ -3,19 +3,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_GENERATOR_CONFIG } from "../lib/default-config.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const targetRoot = path.resolve(process.env.INIT_CWD || process.cwd());
 const configPath = path.join(targetRoot, "generate-crud.config.json");
-
-const defaultConfig = {
-  swaggerUrl: "https://example.com/service/swagger-ui/index.html",
-  auth: {
-    mode: "basic",
-    usernameEnv: "SWAGGER_USERNAME",
-    passwordEnv: "SWAGGER_PASSWORD",
-  },
-};
 
 async function pathExists(targetPath) {
   try {
@@ -39,7 +31,7 @@ async function main() {
     return;
   }
 
-  await fs.writeFile(configPath, `${JSON.stringify(defaultConfig, null, 2)}\n`, "utf8");
+  await fs.writeFile(configPath, `${JSON.stringify(DEFAULT_GENERATOR_CONFIG, null, 2)}\n`, "utf8");
   console.log(`generator-crud: created ${path.relative(targetRoot, configPath)}`);
 }
 

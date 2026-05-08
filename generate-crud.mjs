@@ -4,7 +4,7 @@ import path from "node:path";
 import { AUTH_MODES } from "./lib/constants.mjs";
 import { buildApiMethodsBlock, buildCreateInitialValuesBlock, buildMapperFieldsBlock, buildMapperImportsBlock, buildSchemaContext, buildSuggestedOutputPath, buildUpdateInitialValuesBlock, buildValidationFieldsBlock } from "./lib/codegen.mjs";
 import { ensureDir, pathExists, projectPath, writeFile } from "./lib/fs-utils.mjs";
-import { loadGeneratorConfig, resolveAuthConfig } from "./lib/generator-config.mjs";
+import { ensureGeneratorConfigFile, loadGeneratorConfig, resolveAuthConfig } from "./lib/generator-config.mjs";
 import { buildModuleNames, toCamelCase, toPascalCase } from "./lib/naming.mjs";
 import { detectExtraMutations, detectServiceKey, describeOperation, getOperationsByTag, getServers, getTags, loadConfigServices, loadOpenApiDocument, resolveCrudCandidates } from "./lib/openapi.mjs";
 import { closePrompt, promptConfirm, promptSelect, promptText } from "./lib/prompt.mjs";
@@ -617,6 +617,7 @@ async function resolveEntityRelationBindings(fields) {
 }
 
 async function main() {
+  await ensureGeneratorConfigFile();
   const config = await loadGeneratorConfig();
   const manifest = await ensureTemplateReady();
   const swaggerUrl = config.swaggerUrl || await promptText("Swagger/OpenAPI URL yoki local file path");
