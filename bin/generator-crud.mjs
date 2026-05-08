@@ -14,12 +14,12 @@ Foydalanish:
 
 if (command === "crud") {
   await import("../generate-crud.mjs");
-  process.exit(0);
+  process.exit(process.exitCode || 0);
 }
 
 if (command === "template") {
   await import("../build-template.mjs");
-  process.exit(0);
+  process.exit(process.exitCode || 0);
 }
 
 console.error(`Noma'lum command: ${command}`);

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { AUTH_MODES, DEFAULT_TEMPLATE_NAME, DEFAULT_TEMPLATE_SOURCE } from "./lib/constants.mjs";
+import { AUTH_MODES } from "./lib/constants.mjs";
 import { buildApiMethodsBlock, buildCreateInitialValuesBlock, buildMapperFieldsBlock, buildMapperImportsBlock, buildSchemaContext, buildSuggestedOutputPath, buildUpdateInitialValuesBlock, buildValidationFieldsBlock } from "./lib/codegen.mjs";
 import { ensureDir, writeFile } from "./lib/fs-utils.mjs";
 import { buildModuleNames, toCamelCase, toPascalCase } from "./lib/naming.mjs";
@@ -12,17 +12,22 @@ import {
   isRelationLikeField,
 } from "./lib/relations.mjs";
 import { extractRequestSchema, getSchemaFields } from "./lib/schema.mjs";
-import { activateTemplate, buildNamedCrudTemplate, getCurrentTemplateName, listSavedTemplates } from "./lib/template-builder.mjs";
+import { activateTemplate, getCurrentTemplateName, listSavedTemplates, seedBundledDefaultTemplate } from "./lib/template-builder.mjs";
 
 async function ensureTemplateReady() {
-  const savedTemplates = await listSavedTemplates();
+  let savedTemplates = await listSavedTemplates();
 
   if (!savedTemplates.length) {
-    console.log("Template topilmadi, default source bo'yicha qayta build qilinadi...");
-    return buildNamedCrudTemplate({
-      sourcePath: DEFAULT_TEMPLATE_SOURCE,
-      templateName: DEFAULT_TEMPLATE_NAME,
-    });
+    const seededTemplate = await seedBundledDefaultTemplate();
+    if (seededTemplate) {
+      return seededTemplate;
+    }
+
+    savedTemplates = await listSavedTemplates();
+  }
+
+  if (!savedTemplates.length) {
+    throw new Error("Template topilmadi: package ichidagi standard template ham topilmadi.");
   }
 
   if (savedTemplates.length === 1) {
@@ -723,7 +728,7 @@ async function main() {
   console.log(`\nCRUD modul yaratildi: src/modules/${names.outputPath}`);
 }
 
-main()
+await main()
   .catch((error) => {
     console.error(`\nXatolik: ${error.message}`);
     process.exitCode = 1;

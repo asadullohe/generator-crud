@@ -8,18 +8,29 @@
 pnpm add -D @asadullohe/generator-crud
 ```
 
-CLI sifatida ishlatish:
+Target project `package.json`iga script qo'shish:
 
-```bash
-pnpm exec generator-crud template
-pnpm exec generator-crud crud
+```json
+{
+  "scripts": {
+    "generate-crud": "generator-crud crud",
+    "crud:generate-template": "generator-crud template"
+  }
+}
 ```
 
-Yoki local package ichida:
+CRUD generatsiya qilish:
 
 ```bash
-pnpm template
-pnpm crud
+pnpm generate-crud
+```
+
+`standard` template package ichida bor. Oddiy CRUD generatsiya uchun avval `template` command ishlatish shart emas.
+
+Script qo'shmasdan to'g'ridan-to'g'ri ishlatish ham mumkin:
+
+```bash
+pnpm exec generator-crud crud
 ```
 
 ## Ishlatish
@@ -30,8 +41,13 @@ Misol:
 
 ```bash
 cd /path/to/target-project
-pnpm exec generator-crud template
-pnpm exec generator-crud crud
+pnpm generate-crud
+```
+
+Custom module pattern asosida yangi template saqlash kerak bo'lsa:
+
+```bash
+pnpm crud:generate-template
 ```
 
 ## Template oqimi
@@ -51,7 +67,8 @@ Saqlanadigan joylar:
 
 `crud` command:
 
-- saqlangan template'lar orasidan bittasini tanlatadi
+- agar projectda template bo'lmasa, package ichidagi `standard` template'ni avtomatik aktiv qiladi
+- bir nechta saqlangan template bo'lsa, qaysi biri bilan ishlashni tanlatadi
 - Swagger/OpenAPI URL so'raydi
 - auth kerak bo'lsa auth ma'lumotlarini oladi
 - tag va operationlarni tanlatadi

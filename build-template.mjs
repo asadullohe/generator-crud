@@ -134,7 +134,7 @@ async function main() {
 - manifest: ${result.manifestPath}`);
 }
 
-main()
+await main()
   .catch((error) => {
     console.error(`\nXatolik: ${error.message}`);
     process.exitCode = 1;
