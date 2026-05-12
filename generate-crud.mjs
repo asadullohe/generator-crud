@@ -539,7 +539,6 @@ async function writeExtraForms({
     const constantsImportSpec = buildConstantsImportSpec({
       fields: action.requestFields,
       includeEntity: true,
-      includeTypes: true,
     });
     const formContent = `import { type UseMutationOptions, useMutation } from "@tanstack/react-query";
 import { Form, Formik, type FormikProps } from "formik";
@@ -931,17 +930,13 @@ async function main() {
     enumConstantsBlock: buildEnumConstantsBlock(enumContext.enumDefinitions),
     mapperConstantsImportSpec: buildConstantsImportSpec({
       fields: generatedSchemaContext.entityFields,
-      includeTypes: true,
-      enumValueMode: "direct",
     }),
     validationConstantsImportSpec: buildConstantsImportSpec({
       fields: generatedSchemaContext.formFields,
-      includeTypes: true,
     }),
     formConstantsImportSpec: buildConstantsImportSpec({
       fields: generatedSchemaContext.formFields,
       includeEntity: true,
-      includeTypes: false,
       enumValueMode: "direct",
     }),
     skipTypes: hasList ? "false" : "true",
