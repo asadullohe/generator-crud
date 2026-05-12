@@ -15,7 +15,7 @@ import {
   buildUpdateInitialValuesBlock,
   buildValidationFieldsBlock,
 } from "./lib/codegen.mjs";
-import { ensureDir, pathExists, projectPath, writeFile } from "./lib/fs-utils.mjs";
+import { ensureDir, pathExists, projectPath, readFile, writeFile } from "./lib/fs-utils.mjs";
 import { ensureGeneratorConfigFile, loadGeneratorConfig, resolveAuthConfig } from "./lib/generator-config.mjs";
 import { buildModuleNames, toCamelCase, toPascalCase } from "./lib/naming.mjs";
 import { detectExtraMutations, detectServiceKey, describeOperation, getOperationsByTag, getServers, getSwaggerDefinitions, getTags, loadConfigServices, loadOpenApiDocument, resolveCrudCandidates } from "./lib/openapi.mjs";
@@ -590,6 +590,33 @@ ${buildCreateInitialValuesBlock(action.requestFields)}
   await writeFile(projectPath("src/modules", names.outputPath, "forms", "index.ts"), exportLines.join("\n"));
 }
 
+function hasExportedConst(content, constName) {
+  return new RegExp(`export\\s+const\\s+${constName}\\b`).test(content);
+}
+
+async function writeEnumConstants({ names, enumDefinitions }) {
+  if (!enumDefinitions.length) {
+    return;
+  }
+
+  const constantsPath = projectPath("src/modules", names.outputPath, "constants.ts");
+  const existingContent = await pathExists(constantsPath)
+    ? await readFile(constantsPath)
+    : `export const ENTITY = "${names.entityConstValue}";\n`;
+  const missingDefinitions = enumDefinitions.filter(
+    (definition) => !hasExportedConst(existingContent, definition.constName),
+  );
+
+  if (!missingDefinitions.length) {
+    return;
+  }
+
+  const enumConstantsBlock = buildEnumConstantsBlock(missingDefinitions);
+  const nextContent = `${existingContent.trimEnd()}\n\n${enumConstantsBlock}\n`;
+
+  await writeFile(constantsPath, nextContent);
+}
+
 async function promptAvailableOutputPath(defaultPath, options = {}) {
   let suggestedPath = defaultPath;
 
@@ -926,7 +953,7 @@ async function main() {
     hasUpdateForm,
     hasMultiNameEntityFields,
     hasMultiNameFormFields,
-    enumConstantsBlock: buildEnumConstantsBlock(enumContext.enumDefinitions),
+    enumConstantsBlock: "",
     mapperConstantsImportSpec: buildConstantsImportSpec({
       fields: generatedSchemaContext.entityFields,
     }),
@@ -977,6 +1004,10 @@ async function main() {
     entityTypeName: names.entityTypeName,
     hasCreateForm,
     hasUpdateForm,
+  });
+  await writeEnumConstants({
+    names,
+    enumDefinitions: enumContext.enumDefinitions,
   });
 
   console.log(`\nCRUD modul yaratildi: src/modules/${names.outputPath}`);
