@@ -907,7 +907,6 @@ async function main() {
   const enumContext = buildEnumContext({
     schemaContext,
     extraActions,
-    entityPascal: names.entityPascal,
   });
   const generatedSchemaContext = enumContext.schemaContext;
   const generatedExtraActions = enumContext.extraActions;
