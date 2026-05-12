@@ -5,6 +5,9 @@ import { get } from "radash";
 <% if (hasMultiNameEntityFields === "true") { %>
 import { getMultiName } from "@/common/mapppers.ts";
 <% } %>
+<% if (mapperConstantsImportSpec) { %>
+import { <%= mapperConstantsImportSpec %> } from "./constants.ts";
+<% } %>
 <% if (mapperImportsBlock) { %>
 <%- mapperImportsBlock %>
 <% } %>

@@ -8,7 +8,7 @@ import { Form, Formik, type FormikProps } from "formik";
 import { getMultiName } from "@/common/mapppers.ts";
 <% } %>
 import { <%= apiName %> } from "../api.ts";
-import { ENTITY } from "../constants.ts";
+import { <%= formConstantsImportSpec %> } from "../constants.ts";
 import { <%= mapperName %>, type <%= entityTypeName %> } from "../mappers.ts";
 import { <%= validationName %>, type <%= valuesTypeName %> } from "../validation.ts";
 

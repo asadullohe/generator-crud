@@ -204,6 +204,7 @@ pnpm generate-crud --config=./crud.config.json
 - `list`, `single`, `create`, `update`, `delete`
 - `sync`, `upload`, va boshqa custom mutation/form operationlar
 - multilingual fieldlar uchun `getMultiName` / `getMultiNameSchema`
+- Swagger/OpenAPI `enum` fieldlari uchun module `constants.ts` ichida `as const` options va type generatsiya qilish
 - relation mapper suggestion:
   registry, module scan, yoki manual mapper path orqali
 

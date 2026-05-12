@@ -1,6 +1,6 @@
 {
   "name": "@asadullohe/generator-crud",
-  "version": "1.0.12",
+  "version": "1.1.0",
   "description": "Swagger/OpenAPI asosida CRUD module generator",
   "type": "module",
   "packageManager": "pnpm@10.0.0",

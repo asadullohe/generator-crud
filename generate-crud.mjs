@@ -2,7 +2,19 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { AUTH_MODES } from "./lib/constants.mjs";
-import { buildApiMethodsBlock, buildCreateInitialValuesBlock, buildMapperFieldsBlock, buildMapperImportsBlock, buildSchemaContext, buildSuggestedOutputPath, buildUpdateInitialValuesBlock, buildValidationFieldsBlock } from "./lib/codegen.mjs";
+import {
+  buildApiMethodsBlock,
+  buildConstantsImportSpec,
+  buildCreateInitialValuesBlock,
+  buildEnumConstantsBlock,
+  buildEnumContext,
+  buildMapperFieldsBlock,
+  buildMapperImportsBlock,
+  buildSchemaContext,
+  buildSuggestedOutputPath,
+  buildUpdateInitialValuesBlock,
+  buildValidationFieldsBlock,
+} from "./lib/codegen.mjs";
 import { ensureDir, pathExists, projectPath, writeFile } from "./lib/fs-utils.mjs";
 import { ensureGeneratorConfigFile, loadGeneratorConfig, resolveAuthConfig } from "./lib/generator-config.mjs";
 import { buildModuleNames, toCamelCase, toPascalCase } from "./lib/naming.mjs";
@@ -524,11 +536,16 @@ async function writeExtraForms({
 
   for (const action of formActions) {
     exportLines.push(`export * from "./${action.formName}.tsx";`);
+    const constantsImportSpec = buildConstantsImportSpec({
+      fields: action.requestFields,
+      includeEntity: true,
+      includeTypes: true,
+    });
     const formContent = `import { type UseMutationOptions, useMutation } from "@tanstack/react-query";
 import { Form, Formik, type FormikProps } from "formik";
 ${action.hasMultiNameFormFields ? 'import { getMultiName, getMultiNameSchema } from "@/common/mapppers.ts";\n' : ""}import { yup } from "@/services";
 import { ${apiName} } from "../api.ts";
-import { ENTITY } from "../constants.ts";
+import { ${constantsImportSpec} } from "../constants.ts";
 import { ${mapperName}, type ${entityTypeName} } from "../mappers.ts";
 
 const ${action.validationName} = yup.object().shape({
@@ -888,6 +905,13 @@ async function main() {
   const hasCustomForms = extraActions.some((action) => action.generationType === "form");
   const hasMultiNameEntityFields = schemaContext.entityFields.some((field) => field.isMultiName);
   const hasMultiNameFormFields = schemaContext.formFields.some((field) => field.isMultiName);
+  const enumContext = buildEnumContext({
+    schemaContext,
+    extraActions,
+    entityPascal: names.entityPascal,
+  });
+  const generatedSchemaContext = enumContext.schemaContext;
+  const generatedExtraActions = enumContext.extraActions;
 
   runHygen({
     ...names,
@@ -904,6 +928,22 @@ async function main() {
     hasUpdateForm,
     hasMultiNameEntityFields,
     hasMultiNameFormFields,
+    enumConstantsBlock: buildEnumConstantsBlock(enumContext.enumDefinitions),
+    mapperConstantsImportSpec: buildConstantsImportSpec({
+      fields: generatedSchemaContext.entityFields,
+      includeTypes: true,
+      enumValueMode: "direct",
+    }),
+    validationConstantsImportSpec: buildConstantsImportSpec({
+      fields: generatedSchemaContext.formFields,
+      includeTypes: true,
+    }),
+    formConstantsImportSpec: buildConstantsImportSpec({
+      fields: generatedSchemaContext.formFields,
+      includeEntity: true,
+      includeTypes: false,
+      enumValueMode: "direct",
+    }),
     skipTypes: hasList ? "false" : "true",
     skipValidation: hasCreate || hasUpdate ? "false" : "true",
     skipFormsIndex: hasCreateForm || hasUpdateForm ? "false" : "true",
@@ -917,27 +957,27 @@ async function main() {
       operations: finalOperations,
       serviceKey,
       valuesTypeName: names.valuesTypeName,
-      extraMutations: extraActions,
+      extraMutations: generatedExtraActions,
     }),
     mapperImportsBlock: buildMapperImportsBlock(relationBindings),
-    mapperFieldsBlock: buildMapperFieldsBlock(schemaContext.entityFields, relationBindings),
-    validationFieldsBlock: buildValidationFieldsBlock(schemaContext.formFields),
-    createInitialValuesBlock: buildCreateInitialValuesBlock(schemaContext.formFields),
+    mapperFieldsBlock: buildMapperFieldsBlock(generatedSchemaContext.entityFields, relationBindings),
+    validationFieldsBlock: buildValidationFieldsBlock(generatedSchemaContext.formFields),
+    createInitialValuesBlock: buildCreateInitialValuesBlock(generatedSchemaContext.formFields),
     updateInitialValuesBlock: buildUpdateInitialValuesBlock(
-      schemaContext.formFields,
-      schemaContext.entityFields,
+      generatedSchemaContext.formFields,
+      generatedSchemaContext.entityFields,
       relationBindings,
     ),
   });
 
   await writeExtraMutations({
     names,
-    extraActions,
+    extraActions: generatedExtraActions,
     apiName: names.apiName,
   });
   await writeExtraForms({
     names,
-    extraActions,
+    extraActions: generatedExtraActions,
     apiName: names.apiName,
     mapperName: names.mapperName,
     entityTypeName: names.entityTypeName,
