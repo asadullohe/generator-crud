@@ -594,6 +594,67 @@ function hasExportedConst(content, constName) {
   return new RegExp(`export\\s+const\\s+${constName}\\b`).test(content);
 }
 
+function parseImportSpec(importSpec = "") {
+  return importSpec
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function mergeImportSpec(existingSpec, requiredNames) {
+  const existingNames = parseImportSpec(existingSpec);
+  const names = [...existingNames];
+
+  for (const name of requiredNames) {
+    if (!names.includes(name)) {
+      names.push(name);
+    }
+  }
+
+  return names.join(", ");
+}
+
+function ensureNamedImport(content, importSpec, sourcePath) {
+  const requiredNames = parseImportSpec(importSpec);
+  if (!requiredNames.length) {
+    return content;
+  }
+
+  const sourceWithoutExtension = sourcePath.replace(/\.ts$/, "");
+  const sourcePattern = sourcePath.endsWith(".ts")
+    ? `${escapeRegExp(sourceWithoutExtension)}(?:\\.ts)?`
+    : escapeRegExp(sourcePath);
+  const importPattern = new RegExp(
+    `^import\\s+\\{\\s*([^}]+?)\\s*\\}\\s+from\\s+["'](${sourcePattern})["'];?`,
+    "m",
+  );
+  const match = content.match(importPattern);
+
+  if (match) {
+    const mergedSpec = mergeImportSpec(match[1], requiredNames);
+    return content.replace(match[0], `import { ${mergedSpec} } from "${match[2]}";`);
+  }
+
+  return `import { ${requiredNames.join(", ")} } from "${sourcePath}";\n${content}`;
+}
+
+async function ensureFileImport(filePath, importSpec, sourcePath) {
+  if (!importSpec || !(await pathExists(filePath))) {
+    return;
+  }
+
+  const content = await readFile(filePath);
+  const nextContent = ensureNamedImport(content, importSpec, sourcePath);
+
+  if (nextContent !== content) {
+    await writeFile(filePath, nextContent);
+  }
+}
+
 async function writeEnumConstants({ names, enumDefinitions }) {
   if (!enumDefinitions.length) {
     return;
@@ -615,6 +676,62 @@ async function writeEnumConstants({ names, enumDefinitions }) {
   const nextContent = `${existingContent.trimEnd()}\n\n${enumConstantsBlock}\n`;
 
   await writeFile(constantsPath, nextContent);
+}
+
+async function writeEnumImports({
+  names,
+  schemaContext,
+  hasCreateForm,
+  hasUpdateForm,
+}) {
+  const moduleRoot = projectPath("src/modules", names.outputPath);
+  const mapperImportSpec = buildConstantsImportSpec({
+    fields: schemaContext.entityFields,
+  });
+  const validationImportSpec = buildConstantsImportSpec({
+    fields: schemaContext.formFields,
+  });
+  const formEnumImportSpec = buildConstantsImportSpec({
+    fields: schemaContext.formFields,
+    enumValueMode: "direct",
+  });
+  const formImportSpec = formEnumImportSpec && buildConstantsImportSpec({
+    fields: schemaContext.formFields,
+    includeEntity: true,
+    enumValueMode: "direct",
+  });
+
+  await ensureFileImport(path.join(moduleRoot, "mappers.ts"), mapperImportSpec, "./constants.ts");
+  await ensureFileImport(path.join(moduleRoot, "validation.ts"), validationImportSpec, "./constants.ts");
+
+  if (hasCreateForm) {
+    await ensureFileImport(path.join(moduleRoot, "forms", "CreateForm.tsx"), formImportSpec, "../constants.ts");
+  }
+  if (hasUpdateForm) {
+    await ensureFileImport(path.join(moduleRoot, "forms", "UpdateForm.tsx"), formImportSpec, "../constants.ts");
+  }
+}
+
+async function writeExtraFormEnumImports({ names, extraActions }) {
+  const formActions = extraActions.filter((action) => action.generationType === "form");
+
+  for (const action of formActions) {
+    const enumImportSpec = buildConstantsImportSpec({
+      fields: action.requestFields,
+      enumValueMode: "direct",
+    });
+    const importSpec = enumImportSpec && buildConstantsImportSpec({
+      fields: action.requestFields,
+      includeEntity: true,
+      enumValueMode: "direct",
+    });
+
+    await ensureFileImport(
+      projectPath("src/modules", names.outputPath, "forms", `${action.formName}.tsx`),
+      importSpec,
+      "../constants.ts",
+    );
+  }
 }
 
 async function promptAvailableOutputPath(defaultPath, options = {}) {
@@ -1008,6 +1125,16 @@ async function main() {
   await writeEnumConstants({
     names,
     enumDefinitions: enumContext.enumDefinitions,
+  });
+  await writeEnumImports({
+    names,
+    schemaContext: generatedSchemaContext,
+    hasCreateForm,
+    hasUpdateForm,
+  });
+  await writeExtraFormEnumImports({
+    names,
+    extraActions: generatedExtraActions,
   });
 
   console.log(`\nCRUD modul yaratildi: src/modules/${names.outputPath}`);
