@@ -229,6 +229,164 @@ function buildClassificationOptions(operation, resolvedOperations) {
   return options;
 }
 
+function buildSingleHookOptions(operation) {
+  const options = [];
+  const hasPathParam = operationHasPathParam(operation);
+
+  if (["get", "post"].includes(operation.method) && !hasPathParam) {
+    options.push({ label: "useList hook", value: "list" });
+    options.push({ label: "useInfiniteList hook", value: "infinite-list" });
+  }
+  if (operation.method === "get" && hasPathParam) {
+    options.push({ label: "useSingle hook", value: "single" });
+  }
+  if (operation.method === "delete") {
+    options.push({ label: "useDelete hook", value: "delete" });
+  }
+
+  return options;
+}
+
+function buildSingleFormOptions(operation) {
+  const options = [];
+  const hasPathParam = operationHasPathParam(operation);
+
+  if (operation.method === "post" && !hasPathParam) {
+    options.push({ label: "CreateForm", value: "create" });
+  }
+  if (["put", "patch"].includes(operation.method) || (operation.method === "post" && !hasPathParam)) {
+    options.push({ label: "UpdateForm", value: "update" });
+  }
+  if (["post", "put", "patch"].includes(operation.method)) {
+    options.push({ label: "Custom form", value: "custom-form" });
+  }
+
+  return options;
+}
+
+function buildSingleMutationOptions(operation, doc) {
+  if (!["post", "put", "patch", "delete"].includes(operation.method)) {
+    return [];
+  }
+
+  const options = [];
+  const requestSchema = extractRequestSchema(operation.operation, doc);
+  const requestFields = getSchemaFields(requestSchema, doc);
+  const operationText = `${operation.path} ${operation.operationId} ${operation.summary}`.toLowerCase();
+  const hasFileField = requestFields.some(
+    (field) =>
+      field.schema?.format === "binary" ||
+      field.schema?.format === "base64" ||
+      field.name.toLowerCase().includes("file"),
+  );
+
+  if (hasFileField || operationText.includes("upload")) {
+    options.push({ label: "Upload mutation", value: "upload" });
+  }
+
+  options.push(
+    { label: "Sync mutation", value: "sync" },
+    { label: "Custom mutation", value: "custom-mutation" },
+  );
+
+  return options;
+}
+
+async function chooseTaggedOperation(operations, message, options = {}) {
+  const selected = await promptSelect(
+    message,
+    operations.map((operation) => ({
+      label: describeOperation(operation),
+      value: operation,
+    })),
+    0,
+    options,
+  );
+
+  return selected.value;
+}
+
+async function resolveSingleArtifact({ artifactMode, operations, doc }, promptOptions = {}) {
+  const generatableOperations = operations.filter((operation) => {
+    if (artifactMode === "hook") {
+      return buildSingleHookOptions(operation).length > 0;
+    }
+    if (artifactMode === "form") {
+      return buildSingleFormOptions(operation).length > 0;
+    }
+    return buildSingleMutationOptions(operation, doc).length > 0;
+  });
+
+  if (!generatableOperations.length) {
+    throw new Error(`Tanlangan tag uchun ${artifactMode} generatsiya qilsa bo'ladigan operation topilmadi`);
+  }
+
+  const operation = await chooseTaggedOperation(
+    generatableOperations,
+    "Qaysi operation uchun generatsiya qilinsin?",
+    promptOptions,
+  );
+  const resolvedOperations = {};
+  const extraActions = [];
+  const artifact = { mode: artifactMode };
+
+  if (artifactMode === "hook") {
+    const hookOptions = buildSingleHookOptions(operation);
+    const selectedHook = await promptSelect("Qaysi hook generatsiya qilinsin?", hookOptions, 0, promptOptions);
+    artifact.hookKind = selectedHook.value;
+
+    if (selectedHook.value === "list" || selectedHook.value === "infinite-list") {
+      resolvedOperations.list = operation;
+    } else {
+      resolvedOperations[selectedHook.value] = operation;
+    }
+
+    return { resolvedOperations, extraActions, artifact };
+  }
+
+  if (artifactMode === "form") {
+    const formOptions = buildSingleFormOptions(operation);
+    const selectedForm = await promptSelect("Qaysi forma generatsiya qilinsin?", formOptions, 0, promptOptions);
+    artifact.formKind = selectedForm.value;
+
+    if (selectedForm.value === "create" || selectedForm.value === "update") {
+      resolvedOperations[selectedForm.value] = operation;
+    } else {
+      extraActions.push(
+        buildExtraAction({
+          operation,
+          doc,
+          generationType: "form",
+          kind: "custom",
+          usedNames: new Set(),
+        }),
+      );
+    }
+
+    return { resolvedOperations, extraActions, artifact };
+  }
+
+  const mutationOptions = buildSingleMutationOptions(operation, doc);
+  const selectedMutation = await promptSelect(
+    "Qaysi mutation generatsiya qilinsin?",
+    mutationOptions,
+    0,
+    promptOptions,
+  );
+  artifact.mutationKind = selectedMutation.value;
+  extraActions.push(
+    buildExtraAction({
+      operation,
+      doc,
+      generationType: "mutation",
+      kind: selectedMutation.value === "custom-mutation" ? "custom" : selectedMutation.value,
+      usedNames: new Set(),
+    }),
+  );
+
+  return { resolvedOperations, extraActions, artifact };
+}
+
 async function classifyRemainingOperations({ operations, resolvedOperations, autoExtraActions, doc }, promptOptions = {}) {
   const selected = new Set(Object.values(resolvedOperations).filter(Boolean));
   const autoSet = new Set(autoExtraActions.map((action) => action.operation));
@@ -433,13 +591,14 @@ import { ${apiName} } from "../api";
 import { ENTITY } from "../constants";
 
 type Payload = Record<string, unknown> & { ${mutation.fileFieldName}: File };
+${mutation.hasPathParam ? "\ntype MutationArgs = { id: string; values: Payload };" : ""}
 
 const ${mutation.hookName} = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (values: Payload) => {
-      const { data } = await ${apiName}.${mutation.apiMethodName}({ values });
+    mutationFn: async (${mutation.hasPathParam ? "{ id, values }: MutationArgs" : "values: Payload"}) => {
+      const { data } = await ${apiName}.${mutation.apiMethodName}({ ${mutation.hasPathParam ? "id, " : ""}values });
 
       return data;
     },
@@ -459,13 +618,14 @@ import { ${apiName} } from "../api";
 import { ENTITY } from "../constants";
 
 type Payload = Record<string, unknown>;
+${mutation.hasPathParam ? "\ntype MutationArgs = { id: string; values: Payload };" : ""}
 
 const ${mutation.hookName} = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (values: Payload) => {
-      const { data } = await ${apiName}.${mutation.apiMethodName}({ values });
+    mutationFn: async (${mutation.hasPathParam ? "{ id, values }: MutationArgs" : "values: Payload"}) => {
+      const { data } = await ${apiName}.${mutation.apiMethodName}({ ${mutation.hasPathParam ? "id, " : ""}values });
 
       return data;
     },
@@ -487,8 +647,8 @@ const ${mutation.hookName} = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async () => {
-      const { data } = await ${apiName}.${mutation.apiMethodName}();
+    mutationFn: async (${mutation.hasPathParam ? "{ id }: { id: string }" : ""}) => {
+      const { data } = await ${apiName}.${mutation.apiMethodName}(${mutation.hasPathParam ? "{ id }" : ""});
 
       return data;
     },
@@ -944,9 +1104,43 @@ async function runCrudWizard({ config, manifest }) {
       },
     },
     {
+      key: "generationMode",
+      interactive: true,
+      run: async () => {
+        state.generationMode = await promptSelect(
+          "Nima generatsiya qilinsin?",
+          [
+            { label: "Full CRUD module", value: "full" },
+            { label: "Bitta hook", value: "hook" },
+            { label: "Bitta forma", value: "form" },
+            { label: "Bitta mutation", value: "mutation" },
+          ],
+          0,
+          promptOptions,
+        );
+      },
+    },
+    {
       key: "operations",
       interactive: true,
       run: async () => {
+        if (state.generationMode.value !== "full") {
+          const resolved = await resolveSingleArtifact(
+            {
+              artifactMode: state.generationMode.value,
+              operations: state.operations,
+              doc: state.doc,
+            },
+            promptOptions,
+          );
+          state.resolvedOperations = resolved.resolvedOperations;
+          state.finalOperations = resolved.resolvedOperations;
+          state.extraActions = resolved.extraActions;
+          state.artifact = resolved.artifact;
+          state.autoExtraActions = [];
+          return;
+        }
+
         const candidates = resolveCrudCandidates(state.operations);
         state.resolvedOperations = {
           list: await chooseOperation("list", candidates.list, promptOptions),
@@ -962,6 +1156,13 @@ async function runCrudWizard({ config, manifest }) {
       key: "extraOperations",
       interactive: true,
       run: async () => {
+        if (state.generationMode.value !== "full") {
+          if (!hasGeneratableOperations(state.finalOperations, state.extraActions)) {
+            throw new Error("Tanlangan artifact uchun generatsiya qilsa bo'ladigan operation topilmadi");
+          }
+          return;
+        }
+
         const classified = await classifyRemainingOperations(
           {
             operations: state.operations,
@@ -1036,6 +1237,7 @@ async function main() {
     names,
     schemaContext,
     relationBindings,
+    artifact,
   } = await runCrudWizard({ config, manifest });
   const hasCreateForm = Boolean(finalOperations.create && schemaContext.formFields.length);
   const hasUpdateForm = Boolean(finalOperations.update && schemaContext.formFields.length);
@@ -1044,6 +1246,8 @@ async function main() {
   const hasCreate = Boolean(finalOperations.create);
   const hasUpdate = Boolean(finalOperations.update);
   const hasDelete = Boolean(finalOperations.delete);
+  const hasUseList = hasList && artifact?.hookKind !== "infinite-list";
+  const hasUseInfiniteList = hasList && artifact?.hookKind !== "list";
   const hasMutations = extraActions.some((action) => action.generationType === "mutation");
   const hasCustomForms = extraActions.some((action) => action.generationType === "form");
   const hasMultiNameEntityFields = schemaContext.entityFields.some((field) => field.isMultiName);
@@ -1064,6 +1268,8 @@ async function main() {
     hasCreate,
     hasUpdate,
     hasDelete,
+    hasUseList,
+    hasUseInfiniteList,
     hasMutations,
     hasCustomForms,
     hasCreateForm,
@@ -1087,10 +1293,10 @@ async function main() {
     skipFormsIndex: hasCreateForm || hasUpdateForm ? "false" : "true",
     skipCreateForm: hasCreateForm ? "false" : "true",
     skipUpdateForm: hasUpdateForm ? "false" : "true",
-    skipUseList: hasList ? "false" : "true",
+    skipUseList: hasUseList ? "false" : "true",
     skipUseSingle: hasSingle ? "false" : "true",
     skipUseDelete: hasDelete ? "false" : "true",
-    skipUseInfiniteList: hasList ? "false" : "true",
+    skipUseInfiniteList: hasUseInfiniteList ? "false" : "true",
     apiMethodsBlock: buildApiMethodsBlock({
       operations: finalOperations,
       serviceKey,

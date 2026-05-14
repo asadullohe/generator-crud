@@ -185,6 +185,7 @@ Saqlanadigan joylar:
 - Swagger UI ichida bir nechta definition bo'lsa, definition tanlatadi
 - select savollarida `0`, text savollarida `:back` orqali oldingi stepga qaytish mumkin
 - tag va operationlarni tanlatadi
+- generatsiya scope'ini tanlatadi: full CRUD, bitta hook, bitta forma yoki bitta mutation
 - `src/modules/...` ichiga CRUD modul generatsiya qiladi
 
 Qo'llab-quvvatlanadigan config fayllar:
@@ -202,6 +203,7 @@ pnpm generate-crud --config=./crud.config.json
 ## Qo'llab-quvvatlanadigan holatlar
 
 - `list`, `single`, `create`, `update`, `delete`
+- full CRUD yoki alohida artifact generatsiyasi: `useList`, `useInfiniteList`, `useSingle`, `useDelete`, form yoki mutation
 - `sync`, `upload`, va boshqa custom mutation/form operationlar
 - multilingual fieldlar uchun `getMultiName` / `getMultiNameSchema`
 - Swagger/OpenAPI `enum` fieldlari uchun module `constants.ts` ichida `as const` options va type generatsiya qilish
