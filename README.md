@@ -186,7 +186,8 @@ Saqlanadigan joylar:
 - select savollarida `0`, text savollarida `:back` orqali oldingi stepga qaytish mumkin
 - tag va operationlarni tanlatadi
 - generatsiya scope'ini tanlatadi: full CRUD, bitta hook, bitta forma yoki bitta mutation
-- `src/modules/...` ichiga CRUD modul generatsiya qiladi
+- partial scope tanlansa mavjud modulga append qilish yoki yangi modul yaratishni tanlatadi
+- `src/modules/...` ichiga CRUD modul generatsiya qiladi yoki mavjud modulni yangilaydi
 
 Qo'llab-quvvatlanadigan config fayllar:
 
@@ -204,6 +205,7 @@ pnpm generate-crud --config=./crud.config.json
 
 - `list`, `single`, `create`, `update`, `delete`
 - full CRUD yoki alohida artifact generatsiyasi: `useList`, `useInfiniteList`, `useSingle`, `useDelete`, form yoki mutation
+- alohida artifactni mavjud modulga append qilish
 - `sync`, `upload`, va boshqa custom mutation/form operationlar
 - multilingual fieldlar uchun `getMultiName` / `getMultiNameSchema`
 - Swagger/OpenAPI `enum` fieldlari uchun module `constants.ts` ichida `as const` options va type generatsiya qilish

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { AUTH_MODES } from "./lib/constants.mjs";
@@ -569,6 +570,21 @@ async function chooseDefinition(swaggerUrl, auth, config, options = {}) {
   return { definition: selected.value, prompted: true };
 }
 
+async function mergeFileLines(filePath, lines) {
+  const existingLines = (await pathExists(filePath))
+    ? (await readFile(filePath)).split(/\r?\n/).filter(Boolean)
+    : [];
+  const mergedLines = [...existingLines];
+
+  for (const line of lines.filter(Boolean)) {
+    if (!mergedLines.includes(line)) {
+      mergedLines.push(line);
+    }
+  }
+
+  await writeFile(filePath, mergedLines.join("\n"));
+}
+
 async function writeExtraMutations({ names, extraActions, apiName }) {
   const mutationActions = extraActions.filter((action) => action.generationType === "mutation");
   if (!mutationActions.length) {
@@ -666,7 +682,7 @@ export default ${mutation.hookName};
     await writeFile(projectPath("src/modules", names.outputPath, "mutations", filename), hookBody);
   }
 
-  await writeFile(projectPath("src/modules", names.outputPath, "mutations", "index.ts"), exportLines.join("\n"));
+  await mergeFileLines(projectPath("src/modules", names.outputPath, "mutations", "index.ts"), exportLines);
 }
 
 async function writeExtraForms({
@@ -747,7 +763,7 @@ ${buildCreateInitialValuesBlock(action.requestFields)}
     await writeFile(projectPath("src/modules", names.outputPath, "forms", `${action.formName}.tsx`), formContent);
   }
 
-  await writeFile(projectPath("src/modules", names.outputPath, "forms", "index.ts"), exportLines.join("\n"));
+  await mergeFileLines(projectPath("src/modules", names.outputPath, "forms", "index.ts"), exportLines);
 }
 
 function hasExportedConst(content, constName) {
@@ -894,6 +910,466 @@ async function writeExtraFormEnumImports({ names, extraActions }) {
   }
 }
 
+function buildApiMethodNames(operations, extraMutations = []) {
+  return [
+    operations.list ? "list" : null,
+    operations.single ? "single" : null,
+    operations.create ? "create" : null,
+    operations.update ? "update" : null,
+    operations.delete ? "delete" : null,
+    ...extraMutations.map((mutation) => mutation.apiMethodName),
+  ].filter(Boolean);
+}
+
+async function appendApiMethods({ names, operations, serviceKey, extraMutations = [] }) {
+  const apiPath = projectPath("src/modules", names.outputPath, "api.ts");
+  if (!(await pathExists(apiPath))) {
+    throw new Error(`Append uchun api.ts topilmadi: src/modules/${names.outputPath}/api.ts`);
+  }
+
+  const content = await readFile(apiPath);
+  const missingMethodNames = buildApiMethodNames(operations, extraMutations).filter(
+    (methodName) => !new RegExp(`\\b${methodName}\\s*\\(`).test(content),
+  );
+
+  if (!missingMethodNames.length) {
+    return;
+  }
+
+  const methodsBlock = buildApiMethodsBlock({
+    operations,
+    serviceKey,
+    valuesTypeName: names.valuesTypeName,
+    extraMutations,
+  }).trimEnd();
+  const closingPattern = /\n} as const;\s*$/;
+  const match = content.match(closingPattern);
+
+  if (!match) {
+    throw new Error(`api.ts formatini aniqlab bo'lmadi: src/modules/${names.outputPath}/api.ts`);
+  }
+
+  const beforeClose = content.slice(0, match.index).trimEnd();
+  const separator = beforeClose.endsWith("{") ? "\n" : beforeClose.endsWith(",") ? "\n" : ",\n";
+  const nextContent = `${beforeClose}${separator}${methodsBlock}\n} as const;\n`;
+
+  await writeFile(apiPath, nextContent);
+}
+
+async function ensureTypesFile({ names }) {
+  const typesPath = projectPath("src/modules", names.outputPath, "types.ts");
+  if (await pathExists(typesPath)) {
+    return;
+  }
+
+  await writeFile(
+    typesPath,
+    `export type Filter = {
+  key: string;
+  operation: ">" | ">=" | "<" | "<=" | "=" | "!=";
+  value: string | number | string[];
+};
+
+export type Params = {
+  page?: number;
+  perPage?: number;
+  sort?: {
+    key?: string;
+    direction?: "ASC" | "DESC";
+  };
+  filter?: Filter[];
+};
+`,
+  );
+}
+
+async function ensureValidationFile({
+  names,
+  fields,
+  validationConstantsImportSpec,
+  hasMultiNameFormFields,
+}) {
+  const validationPath = projectPath("src/modules", names.outputPath, "validation.ts");
+  const validationBlock = `${hasMultiNameFormFields ? 'import { getMultiNameSchema } from "@/common/mapppers.ts";\n' : ""}import { yup } from "@/services";
+${validationConstantsImportSpec ? `import { ${validationConstantsImportSpec} } from "./constants.ts";\n` : ""}
+export const ${names.validationName} = yup.object().shape({
+${buildValidationFieldsBlock(fields)}
+});
+
+export type ${names.valuesTypeName} = yup.InferType<typeof ${names.validationName}>;
+`;
+
+  if (!(await pathExists(validationPath))) {
+    await writeFile(validationPath, validationBlock);
+    return;
+  }
+
+  const content = await readFile(validationPath);
+  if (hasExportedConst(content, names.validationName)) {
+    return;
+  }
+
+  await writeFile(validationPath, `${content.trimEnd()}\n\n${validationBlock}`);
+}
+
+function renderUseListHook({ names, defaultSortKey }) {
+  return `import { useQuery } from "@tanstack/react-query";
+import { get } from "radash";
+import { Meta } from "@/common/mapppers.ts";
+import type { IMeta } from "@/common/types.ts";
+import { config } from "@/config.ts";
+import { ${names.apiName} } from "../api.ts";
+import { ENTITY } from "../constants.ts";
+import { ${names.mapperName}, type ${names.entityTypeName} } from "../mappers.ts";
+import type { Params } from "../types.ts";
+
+type UseListProps = {
+  params?: Partial<Params>;
+  enabled?: boolean;
+  retry?: boolean | number;
+};
+
+type TData = {
+  items: ${names.entityTypeName}[];
+  meta: IMeta;
+};
+
+export function useList({ params = {}, enabled = true, retry = false }: UseListProps) {
+  const initialData = { items: [], meta: Meta() } as TData;
+  const defaultParams = {
+    page: params?.page || 1,
+    perPage: params?.perPage || config.list.perPage,
+    sort: {
+      key: params?.sort?.key || "${defaultSortKey}",
+      direction: params?.sort?.direction || "DESC",
+    },
+    filter: (params?.filter || []).filter((i) => !!i.value),
+  } satisfies Params;
+
+  const { data = initialData, ...args } = useQuery({
+    queryKey: [ENTITY, "list", defaultParams],
+    async queryFn() {
+      const { data } = await ${names.apiName}.list({
+        params: defaultParams,
+      });
+
+      const items = (get<any[]>(data, "content") || []).map(${names.mapperName});
+      const meta = Meta(get(data, "meta"));
+
+      return {
+        items,
+        meta,
+      };
+    },
+    initialData,
+    enabled,
+    retry,
+  });
+
+  return { ...data, ...args };
+}
+`;
+}
+
+function renderUseInfiniteListHook({ names, defaultSortKey }) {
+  return `import { type InfiniteData, useInfiniteQuery } from "@tanstack/react-query";
+import { get } from "radash";
+import { Meta } from "@/common/mapppers.ts";
+import { config } from "@/config.ts";
+import { ${names.apiName} } from "../api.ts";
+import { ENTITY } from "../constants.ts";
+import { ${names.mapperName}, type ${names.entityTypeName} } from "../mappers.ts";
+import type { Params } from "../types.ts";
+
+type QueryResult = {
+  items: ${names.entityTypeName}[];
+  meta: ReturnType<typeof Meta>;
+};
+
+type UseInfiniteListProps = {
+  params?: Params;
+  enabled?: boolean;
+};
+
+export const useInfiniteList = ({ params, enabled = true }: UseInfiniteListProps = {}) => {
+  const initialData = {
+    pages: [],
+    pageParams: [],
+  } as InfiniteData<QueryResult>;
+
+  const paramsWithDefaults = {
+    perPage: params?.perPage || config.list.perPage,
+    sort: {
+      key: params?.sort?.key || "${defaultSortKey}",
+      direction: params?.sort?.direction || "DESC",
+    },
+    filter: (params?.filter || []).filter((i) => !!(i as any).value),
+  };
+
+  const { data = initialData, ...args } = useInfiniteQuery({
+    queryKey: [ENTITY, "infinite-list", paramsWithDefaults],
+    queryFn: async ({ pageParam = 1 }) => {
+      const { data } = await ${names.apiName}.list({
+        params: {
+          ...paramsWithDefaults,
+          page: pageParam as number,
+        },
+      });
+
+      const items = (get<Array<any>>(data, "content") || []).map((item) => ${names.mapperName}(item));
+      const meta = Meta(get(data as any, "meta"));
+
+      return { items, meta };
+    },
+    initialPageParam: 1,
+    initialData,
+    enabled,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.current < lastPage.meta.totalPages ? lastPage.meta.current + 1 : undefined,
+    retry: false,
+  });
+
+  return { ...args, data };
+};
+`;
+}
+
+function renderUseSingleHook({ names }) {
+  return `import { useQuery } from "@tanstack/react-query";
+import { ${names.apiName} } from "../api.ts";
+import { ENTITY } from "../constants.ts";
+import { ${names.mapperName}, type ${names.entityTypeName} } from "../mappers.ts";
+
+interface IProps {
+  id: string;
+}
+
+type TData = {
+  item: ${names.entityTypeName};
+};
+
+export function useSingle({ id }: IProps) {
+  const initialData = { item: ${names.mapperName}() } as TData;
+
+  const { data = initialData, ...args } = useQuery({
+    queryKey: [ENTITY, "single", id],
+    async queryFn() {
+      const { data } = await ${names.apiName}.single({ id });
+
+      return {
+        item: ${names.mapperName}(data),
+      };
+    },
+    initialData,
+    enabled: !!id,
+  });
+
+  return { ...data, ...args };
+}
+`;
+}
+
+function renderUseDeleteHook({ names }) {
+  return `import { type UseMutationOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ${names.apiName} } from "../api";
+import { ENTITY } from "../constants";
+
+interface UseDeleteProps
+  extends Omit<UseMutationOptions<any, unknown, { id: string }>, "mutationFn" | "mutationKey"> {}
+
+export function useDelete(mutationOptions?: UseDeleteProps) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: [ENTITY, "delete"],
+    mutationFn({ id }: { id: string }) {
+      return ${names.apiName}.delete({ id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === ENTITY,
+      });
+    },
+    ...mutationOptions,
+  });
+}
+`;
+}
+
+function renderStandardForm({
+  names,
+  kind,
+  createInitialValuesBlock,
+  updateInitialValuesBlock,
+  formConstantsImportSpec,
+  hasMultiNameFormFields,
+}) {
+  const isCreate = kind === "create";
+  const formName = isCreate ? "CreateForm" : "UpdateForm";
+  const propsName = `${formName}Props`;
+  const itemProp = isCreate ? "" : `  item: ${names.entityTypeName};\n`;
+  const itemArg = isCreate ? "" : "item, ";
+  const mutationKeyTail = isCreate ? '"create"' : '"update", item';
+  const apiCall = isCreate
+    ? `${names.apiName}.create({ values })`
+    : `${names.apiName}.update({ id: item.id, values })`;
+  const mapperInput = isCreate ? createInitialValuesBlock : updateInitialValuesBlock;
+
+  return `import { type UseMutationOptions, useMutation } from "@tanstack/react-query";
+import { Form, Formik, type FormikProps } from "formik";
+${hasMultiNameFormFields ? 'import { getMultiName } from "@/common/mapppers.ts";\n' : ""}import { ${names.apiName} } from "../api.ts";
+import { ${formConstantsImportSpec} } from "../constants.ts";
+import { ${names.mapperName}, type ${names.entityTypeName} } from "../mappers.ts";
+import { ${names.validationName}, type ${names.valuesTypeName} } from "../validation.ts";
+
+type ${propsName} = {
+${itemProp}  children: (props: FormikProps<${names.valuesTypeName}>) => React.ReactNode;
+} & Omit<UseMutationOptions<${names.entityTypeName}, unknown, ${names.valuesTypeName}>, "mutationFn" | "mutationKey">;
+
+export function ${formName}({ ${itemArg}children, ...mutationOptions }: ${propsName}) {
+  const { mutateAsync } = useMutation({
+    mutationKey: [ENTITY, "form", ${mutationKeyTail}],
+    async mutationFn(values: ${names.valuesTypeName}) {
+      const { data } = await ${apiCall};
+
+      return ${names.mapperName}(data);
+    },
+    ...mutationOptions,
+  });
+
+  return (
+    <Formik<${names.valuesTypeName}>
+      onSubmit={(values) => mutateAsync(values)}
+      initialValues={{
+${mapperInput}
+      }}
+      validationSchema={${names.validationName}}
+      enableReinitialize
+      validateOnChange
+      validateOnBlur
+    >
+      {(props) => <Form>{children(props)}</Form>}
+    </Formik>
+  );
+}
+`;
+}
+
+async function appendPartialArtifact({
+  names,
+  serviceKey,
+  finalOperations,
+  extraActions,
+  artifact,
+  manifest,
+  schemaContext,
+  generatedSchemaContext,
+  generatedExtraActions,
+  hasMultiNameFormFields,
+}) {
+  await appendApiMethods({
+    names,
+    operations: finalOperations,
+    serviceKey,
+    extraMutations: generatedExtraActions,
+  });
+
+  await mergeFileLines(projectPath("src/modules", names.outputPath, "index.ts"), [
+    artifact.mode === "hook" ? 'export * as Hooks from "./hooks";' : "",
+    artifact.mode === "hook" && finalOperations.list ? 'export * as Types from "./types";' : "",
+    artifact.mode === "form" ? 'export * as Forms from "./forms";' : "",
+    artifact.mode === "mutation" ? 'export * as Mutations from "./mutations";' : "",
+  ]);
+
+  if (artifact.mode === "hook") {
+    const hooksDir = projectPath("src/modules", names.outputPath, "hooks");
+    await ensureDir(hooksDir);
+
+    if (artifact.hookKind === "list") {
+      await ensureTypesFile({ names });
+      await writeFile(
+        path.join(hooksDir, "useList.ts"),
+        renderUseListHook({ names, defaultSortKey: manifest.defaultSortKey || "created_at" }),
+      );
+      await mergeFileLines(path.join(hooksDir, "index.ts"), ['export * from "./useList.ts";']);
+    } else if (artifact.hookKind === "infinite-list") {
+      await ensureTypesFile({ names });
+      await writeFile(
+        path.join(hooksDir, "useInfiniteList.ts"),
+        renderUseInfiniteListHook({ names, defaultSortKey: manifest.defaultSortKey || "created_at" }),
+      );
+      await mergeFileLines(path.join(hooksDir, "index.ts"), ['export * from "./useInfiniteList.ts";']);
+    } else if (artifact.hookKind === "single") {
+      await writeFile(path.join(hooksDir, "useSingle.ts"), renderUseSingleHook({ names }));
+      await mergeFileLines(path.join(hooksDir, "index.ts"), ['export * from "./useSingle.ts";']);
+    } else if (artifact.hookKind === "delete") {
+      await writeFile(path.join(hooksDir, "useDelete.ts"), renderUseDeleteHook({ names }));
+      await mergeFileLines(path.join(hooksDir, "index.ts"), ['export * from "./useDelete.ts";']);
+    }
+  }
+
+  if (artifact.mode === "form") {
+    const standardFormKind = artifact.formKind;
+    if (standardFormKind === "create" || standardFormKind === "update") {
+      const formsDir = projectPath("src/modules", names.outputPath, "forms");
+      await ensureDir(formsDir);
+      const validationConstantsImportSpec = buildConstantsImportSpec({
+        fields: generatedSchemaContext.formFields,
+      });
+      const formConstantsImportSpec = buildConstantsImportSpec({
+        fields: generatedSchemaContext.formFields,
+        includeEntity: true,
+        enumValueMode: "direct",
+      });
+
+      await ensureValidationFile({
+        names,
+        fields: generatedSchemaContext.formFields,
+        validationConstantsImportSpec,
+        hasMultiNameFormFields,
+      });
+      await writeFile(
+        path.join(formsDir, standardFormKind === "create" ? "CreateForm.tsx" : "UpdateForm.tsx"),
+        renderStandardForm({
+          names,
+          kind: standardFormKind,
+          createInitialValuesBlock: buildCreateInitialValuesBlock(generatedSchemaContext.formFields),
+          updateInitialValuesBlock: buildUpdateInitialValuesBlock(
+            generatedSchemaContext.formFields,
+            generatedSchemaContext.entityFields,
+            {},
+          ),
+          formConstantsImportSpec,
+          hasMultiNameFormFields,
+        }),
+      );
+      await mergeFileLines(path.join(formsDir, "index.ts"), [
+        standardFormKind === "create"
+          ? 'export * from "./CreateForm.tsx";'
+          : 'export * from "./UpdateForm.tsx";',
+      ]);
+    } else {
+      await writeExtraForms({
+        names,
+        extraActions: generatedExtraActions,
+        apiName: names.apiName,
+        mapperName: names.mapperName,
+        entityTypeName: names.entityTypeName,
+        hasCreateForm: false,
+        hasUpdateForm: false,
+      });
+    }
+  }
+
+  if (artifact.mode === "mutation") {
+    await writeExtraMutations({
+      names,
+      extraActions: generatedExtraActions,
+      apiName: names.apiName,
+    });
+  }
+}
+
 async function promptAvailableOutputPath(defaultPath, options = {}) {
   let suggestedPath = defaultPath;
 
@@ -917,6 +1393,97 @@ async function promptAvailableOutputPath(defaultPath, options = {}) {
       options,
     );
   }
+}
+
+async function findExistingModulePaths(rootPath = projectPath("src/modules"), depth = 0) {
+  if (depth > 6 || !(await pathExists(rootPath))) {
+    return [];
+  }
+
+  const entries = await fs.readdir(rootPath, { withFileTypes: true });
+  const hasModuleFiles = entries.some((entry) => entry.isFile() && entry.name === "api.ts");
+  const candidates = [];
+
+  if (hasModuleFiles) {
+    candidates.push(path.relative(projectPath("src/modules"), rootPath).replace(/\\/g, "/"));
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    candidates.push(...(await findExistingModulePaths(path.join(rootPath, entry.name), depth + 1)));
+  }
+
+  return candidates;
+}
+
+async function promptExistingOutputPath(options = {}) {
+  const candidates = (await findExistingModulePaths()).sort();
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  const selected = await promptSelect(
+    "Qaysi mavjud modulga append qilinsin?",
+    [
+      ...candidates.map((candidate) => ({
+        label: candidate,
+        value: candidate,
+      })),
+      {
+        label: "Path'ni qo'lda kiritish",
+        value: "custom",
+      },
+    ],
+    0,
+    options,
+  );
+
+  if (selected.value === "custom") {
+    return promptText("Mavjud module output path (`src/modules/` dan keyingi qism)", "", options);
+  }
+
+  return selected.value;
+}
+
+async function promptOutputPathForGeneration(defaultPath, { isPartial = false } = {}, options = {}) {
+  if (!isPartial) {
+    const names = await promptAvailableOutputPath(defaultPath, options);
+    return { names, appendToExisting: false };
+  }
+
+  const existingModules = await findExistingModulePaths();
+  if (!existingModules.length) {
+    const names = await promptAvailableOutputPath(defaultPath, options);
+    return { names, appendToExisting: false };
+  }
+
+  const mode = await promptSelect(
+    "Qayerga generatsiya qilinsin?",
+    [
+      { label: "Mavjud modulga append qilish", value: "append" },
+      { label: "Yangi modul yaratish", value: "new" },
+    ],
+    0,
+    options,
+  );
+
+  if (mode.value === "new") {
+    const names = await promptAvailableOutputPath(defaultPath, options);
+    return { names, appendToExisting: false };
+  }
+
+  const existingPath = await promptExistingOutputPath(options);
+  const names = buildModuleNames(existingPath);
+  const absoluteOutput = projectPath("src/modules", names.outputPath);
+  if (!(await pathExists(absoluteOutput))) {
+    throw new Error(`Mavjud module topilmadi: src/modules/${names.outputPath}`);
+  }
+
+  return { names, appendToExisting: true };
 }
 
 async function resolveEntityRelationBindings(fields, options = {}) {
@@ -1184,10 +1751,13 @@ async function runCrudWizard({ config, manifest }) {
       key: "outputPath",
       interactive: true,
       run: async () => {
-        state.names = await promptAvailableOutputPath(
+        const result = await promptOutputPathForGeneration(
           buildSuggestedOutputPath(state.tag.value, state.finalOperations),
+          { isPartial: state.generationMode.value !== "full" },
           promptOptions,
         );
+        state.names = result.names;
+        state.appendToExisting = result.appendToExisting;
       },
     },
     {
@@ -1238,6 +1808,7 @@ async function main() {
     schemaContext,
     relationBindings,
     artifact,
+    appendToExisting,
   } = await runCrudWizard({ config, manifest });
   const hasCreateForm = Boolean(finalOperations.create && schemaContext.formFields.length);
   const hasUpdateForm = Boolean(finalOperations.update && schemaContext.formFields.length);
@@ -1259,75 +1830,90 @@ async function main() {
   const generatedSchemaContext = enumContext.schemaContext;
   const generatedExtraActions = enumContext.extraActions;
 
-  runHygen({
-    ...names,
-    serviceKey,
-    defaultSortKey: manifest.defaultSortKey || "created_at",
-    hasList,
-    hasSingle,
-    hasCreate,
-    hasUpdate,
-    hasDelete,
-    hasUseList,
-    hasUseInfiniteList,
-    hasMutations,
-    hasCustomForms,
-    hasCreateForm,
-    hasUpdateForm,
-    hasMultiNameEntityFields,
-    hasMultiNameFormFields,
-    enumConstantsBlock: "",
-    mapperConstantsImportSpec: buildConstantsImportSpec({
-      fields: generatedSchemaContext.entityFields,
-    }),
-    validationConstantsImportSpec: buildConstantsImportSpec({
-      fields: generatedSchemaContext.formFields,
-    }),
-    formConstantsImportSpec: buildConstantsImportSpec({
-      fields: generatedSchemaContext.formFields,
-      includeEntity: true,
-      enumValueMode: "direct",
-    }),
-    skipTypes: hasList ? "false" : "true",
-    skipValidation: hasCreate || hasUpdate ? "false" : "true",
-    skipFormsIndex: hasCreateForm || hasUpdateForm ? "false" : "true",
-    skipCreateForm: hasCreateForm ? "false" : "true",
-    skipUpdateForm: hasUpdateForm ? "false" : "true",
-    skipUseList: hasUseList ? "false" : "true",
-    skipUseSingle: hasSingle ? "false" : "true",
-    skipUseDelete: hasDelete ? "false" : "true",
-    skipUseInfiniteList: hasUseInfiniteList ? "false" : "true",
-    apiMethodsBlock: buildApiMethodsBlock({
-      operations: finalOperations,
+  if (appendToExisting) {
+    await appendPartialArtifact({
+      names,
       serviceKey,
-      valuesTypeName: names.valuesTypeName,
-      extraMutations: generatedExtraActions,
-    }),
-    mapperImportsBlock: buildMapperImportsBlock(relationBindings),
-    mapperFieldsBlock: buildMapperFieldsBlock(generatedSchemaContext.entityFields, relationBindings),
-    validationFieldsBlock: buildValidationFieldsBlock(generatedSchemaContext.formFields),
-    createInitialValuesBlock: buildCreateInitialValuesBlock(generatedSchemaContext.formFields),
-    updateInitialValuesBlock: buildUpdateInitialValuesBlock(
-      generatedSchemaContext.formFields,
-      generatedSchemaContext.entityFields,
-      relationBindings,
-    ),
-  });
+      finalOperations,
+      extraActions,
+      artifact,
+      manifest,
+      schemaContext,
+      generatedSchemaContext,
+      generatedExtraActions,
+      hasMultiNameFormFields,
+    });
+  } else {
+    runHygen({
+      ...names,
+      serviceKey,
+      defaultSortKey: manifest.defaultSortKey || "created_at",
+      hasList,
+      hasSingle,
+      hasCreate,
+      hasUpdate,
+      hasDelete,
+      hasUseList,
+      hasUseInfiniteList,
+      hasMutations,
+      hasCustomForms,
+      hasCreateForm,
+      hasUpdateForm,
+      hasMultiNameEntityFields,
+      hasMultiNameFormFields,
+      enumConstantsBlock: "",
+      mapperConstantsImportSpec: buildConstantsImportSpec({
+        fields: generatedSchemaContext.entityFields,
+      }),
+      validationConstantsImportSpec: buildConstantsImportSpec({
+        fields: generatedSchemaContext.formFields,
+      }),
+      formConstantsImportSpec: buildConstantsImportSpec({
+        fields: generatedSchemaContext.formFields,
+        includeEntity: true,
+        enumValueMode: "direct",
+      }),
+      skipTypes: hasList ? "false" : "true",
+      skipValidation: hasCreate || hasUpdate ? "false" : "true",
+      skipFormsIndex: hasCreateForm || hasUpdateForm ? "false" : "true",
+      skipCreateForm: hasCreateForm ? "false" : "true",
+      skipUpdateForm: hasUpdateForm ? "false" : "true",
+      skipUseList: hasUseList ? "false" : "true",
+      skipUseSingle: hasSingle ? "false" : "true",
+      skipUseDelete: hasDelete ? "false" : "true",
+      skipUseInfiniteList: hasUseInfiniteList ? "false" : "true",
+      apiMethodsBlock: buildApiMethodsBlock({
+        operations: finalOperations,
+        serviceKey,
+        valuesTypeName: names.valuesTypeName,
+        extraMutations: generatedExtraActions,
+      }),
+      mapperImportsBlock: buildMapperImportsBlock(relationBindings),
+      mapperFieldsBlock: buildMapperFieldsBlock(generatedSchemaContext.entityFields, relationBindings),
+      validationFieldsBlock: buildValidationFieldsBlock(generatedSchemaContext.formFields),
+      createInitialValuesBlock: buildCreateInitialValuesBlock(generatedSchemaContext.formFields),
+      updateInitialValuesBlock: buildUpdateInitialValuesBlock(
+        generatedSchemaContext.formFields,
+        generatedSchemaContext.entityFields,
+        relationBindings,
+      ),
+    });
 
-  await writeExtraMutations({
-    names,
-    extraActions: generatedExtraActions,
-    apiName: names.apiName,
-  });
-  await writeExtraForms({
-    names,
-    extraActions: generatedExtraActions,
-    apiName: names.apiName,
-    mapperName: names.mapperName,
-    entityTypeName: names.entityTypeName,
-    hasCreateForm,
-    hasUpdateForm,
-  });
+    await writeExtraMutations({
+      names,
+      extraActions: generatedExtraActions,
+      apiName: names.apiName,
+    });
+    await writeExtraForms({
+      names,
+      extraActions: generatedExtraActions,
+      apiName: names.apiName,
+      mapperName: names.mapperName,
+      entityTypeName: names.entityTypeName,
+      hasCreateForm,
+      hasUpdateForm,
+    });
+  }
   await writeEnumConstants({
     names,
     enumDefinitions: enumContext.enumDefinitions,
@@ -1343,7 +1929,7 @@ async function main() {
     extraActions: generatedExtraActions,
   });
 
-  console.log(`\nCRUD modul yaratildi: src/modules/${names.outputPath}`);
+  console.log(`\nCRUD modul ${appendToExisting ? "yangilandi" : "yaratildi"}: src/modules/${names.outputPath}`);
 }
 
 await main()
